@@ -1,0 +1,52 @@
+name = "ai4-speakers"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# ── Cron: refreshes the lean speaker cache every 5 minutes so the
+#    first visitor after each TTL window never pays cold-fetch latency.
+#    Full detail data is also refreshed in the background after each lean run.
+[triggers]
+crons = ["*/5 * * * *"]   # every 5 minutes
+
+# ── Optional: Workers KV for globally-replicated lean cache ─────────
+# If you add this binding, the lean speaker list is stored in KV
+# (available at every Cloudflare edge worldwide) instead of the regional
+# Cache API. Eliminates cold starts for geographically distributed audiences.
+#
+# Steps to enable:
+#   1. wrangler kv namespace create SPEAKERS_KV
+#   2. wrangler kv namespace create SPEAKERS_KV --preview
+#   3. Uncomment the blocks below and fill in the IDs from step 1/2.
+#
+# [[kv_namespaces]]
+# binding = "SPEAKERS_KV"
+# id = "YOUR_KV_NAMESPACE_ID"
+# preview_id = "YOUR_PREVIEW_KV_NAMESPACE_ID"
+
+# ── Staging environment ──────────────────────────────────────────
+[env.staging]
+name = "ai4-speakers-staging"
+
+[env.staging.vars]
+EVENT_ID          = "YOUR_SWAPCARD_EVENT_ID"
+# SPEAKER_GROUP_IDS = "id1,id2"   # optional — auto-detected if omitted
+# FEATURED_GROUP_ID = "id"        # optional
+# FEATURED_ORDER_FIELD = "Featured Order"   # default value shown
+# ALLOWED_ORIGINS = "https://ai4.io,https://www.ai4.io"
+
+# Secrets — set via CLI, never commit to git:
+#   wrangler secret put SWAPCARD_API_KEY --env staging
+
+# ── Production environment ───────────────────────────────────────
+[env.production]
+name = "ai4-speakers"
+
+[env.production.vars]
+EVENT_ID          = "YOUR_SWAPCARD_EVENT_ID"
+# SPEAKER_GROUP_IDS = "id1,id2"
+# FEATURED_GROUP_ID = "id"
+# FEATURED_ORDER_FIELD = "Featured Order"
+# ALLOWED_ORIGINS = "https://ai4.io,https://www.ai4.io"
+
+# Secrets — set via CLI, never commit to git:
+#   wrangler secret put SWAPCARD_API_KEY --env production

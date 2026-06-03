@@ -1,0 +1,1198 @@
+<!--
+  Ai4 Speakers Widget — Production embed (v4)
+  ============================================
+  Drop into a WordPress Custom HTML block. Self-contained, no dependencies.
+
+  Configuration:
+    Update data-worker-url below to point at your deployed Cloudflare Worker.
+-->
+<div id="ai4-speakers-root" data-worker-url="https://ai4-speakers.YOUR-SUBDOMAIN.workers.dev/speakers">
+  <div class="a4s-controls">
+    <div class="a4s-controls-top">
+      <label class="a4s-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="search" id="a4s-search-input" placeholder="Search by name, company, or title" autocomplete="off" />
+      </label>
+      <div class="a4s-meta" id="a4s-meta" aria-live="polite"></div>
+    </div>
+    <div class="a4s-filter-row" id="a4s-filter-row"></div>
+    <div class="a4s-active-chips" id="a4s-active-chips" hidden></div>
+  </div>
+
+  <div class="a4s-grid" id="a4s-grid" role="list">
+    <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
+    <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
+    <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
+    <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
+    <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
+  </div>
+
+  <div class="a4s-empty" id="a4s-empty" hidden><p>No speakers match the current filters.</p></div>
+  <div class="a4s-error" id="a4s-error" hidden role="alert"></div>
+
+  <div class="a4s-modal" id="a4s-modal" hidden role="dialog" aria-modal="true">
+    <div class="a4s-modal-backdrop" data-close="1"></div>
+    <div class="a4s-modal-card" role="document">
+      <button type="button" class="a4s-modal-back" id="a4s-modal-back" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        Back
+      </button>
+      <button type="button" class="a4s-modal-close" data-close="1" aria-label="Close">&times;</button>
+      <div class="a4s-modal-body" id="a4s-modal-body"></div>
+    </div>
+  </div>
+</div>
+
+<style>
+  #ai4-speakers-root {
+    --a4-purple: #6B46C1;
+    --a4-purple-deep: #553C9A;
+    --a4-purple-soft: rgba(107, 70, 193, 0.08);
+    --a4-gold: #D4A574;
+    --a4-card-bg-default: #EFEFEF;
+    --a4-card-bg-hover: #F5ECDC;
+    --a4-photo-bg: #C8C8C8;
+    --a4-text: #1a1a1a;
+    --a4-text-muted: #4B5563;
+    --a4-text-subtle: #6B7280;
+    --a4-border: #E5E1D8;
+    --a4-divider: #E5E7EB;
+    --a4-shadow-default: 0 1px 3px rgba(20, 16, 8, 0.05);
+    --a4-shadow-hover: 0 6px 20px rgba(20, 16, 8, 0.08);
+    --a4-radius: 14px;
+    --a4-radius-sm: 10px;
+    font-family: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    color: var(--a4-text);
+    -webkit-font-smoothing: antialiased;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 1320px;
+    margin: 0 auto;
+  }
+  #ai4-speakers-root *, #ai4-speakers-root *::before, #ai4-speakers-root *::after { box-sizing: border-box; }
+
+  /* WordPress theme reset */
+  #ai4-speakers-root h1, #ai4-speakers-root h2, #ai4-speakers-root h3,
+  #ai4-speakers-root h4, #ai4-speakers-root h5, #ai4-speakers-root h6,
+  #ai4-speakers-root p, #ai4-speakers-root button, #ai4-speakers-root input,
+  #ai4-speakers-root label, #ai4-speakers-root span, #ai4-speakers-root div {
+    font-family: inherit;
+    line-height: inherit;
+    letter-spacing: normal;
+    text-transform: none;
+    margin: 0;
+    padding: 0;
+  }
+  #ai4-speakers-root button { background: none; border: none; }
+
+  /* Controls */
+  #ai4-speakers-root .a4s-controls { margin: 0 0 32px !important; }
+  #ai4-speakers-root .a4s-controls-top { display: flex !important; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 16px !important; }
+  .a4s-search { position: relative; flex: 1 1 320px; max-width: 480px; display: flex; align-items: center; }
+  .a4s-search svg { position: absolute; left: 16px; width: 18px; height: 18px; color: var(--a4-text-muted); pointer-events: none; }
+  #ai4-speakers-root .a4s-search input { width: 100%; border: 1px solid var(--a4-border) !important; background: #fff !important; border-radius: 999px !important; padding: 12px 18px 12px 44px !important; font: inherit; font-size: 15px !important; color: var(--a4-text) !important; transition: border-color 0.15s ease, box-shadow 0.15s ease; height: auto !important; }
+  .a4s-search input::placeholder { color: #9CA3AF; }
+  .a4s-search input:focus { outline: none; border-color: var(--a4-purple); box-shadow: 0 0 0 3px rgba(107, 70, 193, 0.15); }
+  #ai4-speakers-root .a4s-meta { display: none !important; }
+
+  #ai4-speakers-root .a4s-filter-row { display: flex !important; flex-wrap: wrap !important; gap: 10px !important; align-items: center !important; }
+  #ai4-speakers-root .a4s-filter { position: relative !important; }
+  #ai4-speakers-root .a4s-filter-btn { display: inline-flex !important; align-items: center !important; gap: 6px !important; background: #fff !important; border: 1px solid var(--a4-border) !important; color: var(--a4-text) !important; padding: 8px 14px !important; border-radius: 999px !important; font: inherit; font-size: 13px !important; font-weight: 600 !important; cursor: pointer !important; transition: all 0.15s ease; white-space: nowrap !important; line-height: 1.4 !important; height: auto !important; text-transform: none !important; }
+  #ai4-speakers-root .a4s-filter-btn:hover { border-color: var(--a4-purple) !important; }
+  #ai4-speakers-root .a4s-filter-btn.has-selection { background: var(--a4-purple) !important; color: #fff !important; border-color: var(--a4-purple) !important; }
+  #ai4-speakers-root .a4s-filter-btn .a4s-caret { width: 10px !important; height: 10px !important; opacity: 0.7 !important; }
+  #ai4-speakers-root .a4s-filter-btn .a4s-count { display: inline-flex !important; align-items: center !important; justify-content: center !important; background: rgba(255,255,255,0.25) !important; color: #fff !important; min-width: 18px !important; height: 18px !important; padding: 0 6px !important; border-radius: 999px !important; font-size: 11px !important; font-weight: 700 !important; }
+  #ai4-speakers-root .a4s-filter-panel { position: absolute !important; top: calc(100% + 6px) !important; left: 0 !important; z-index: 50 !important; background: #fff !important; border: 1px solid var(--a4-border) !important; border-radius: 12px !important; box-shadow: 0 8px 32px rgba(20, 16, 8, 0.12) !important; min-width: 260px !important; max-width: 340px !important; max-height: 360px !important; padding: 14px !important; display: none !important; overflow-y: auto !important; }
+  #ai4-speakers-root .a4s-filter.open .a4s-filter-panel { display: block !important; }
+  #ai4-speakers-root .a4s-filter-option { display: flex !important; align-items: center !important; gap: 10px !important; padding: 9px 12px !important; margin: 0 !important; border-radius: 8px !important; cursor: pointer !important; font-size: 14px !important; transition: background 0.1s ease; }
+  #ai4-speakers-root .a4s-filter-option:hover { background: var(--a4-purple-soft) !important; }
+  #ai4-speakers-root .a4s-filter-option input { margin: 0 !important; accent-color: var(--a4-purple) !important; width: 16px !important; height: 16px !important; cursor: pointer !important; }
+  #ai4-speakers-root .a4s-filter-option-label { flex: 1 !important; }
+  #ai4-speakers-root .a4s-filter-option-count { color: var(--a4-text-muted) !important; font-size: 12px !important; }
+
+  .a4s-reset-btn { background: transparent; border: none; color: var(--a4-purple-deep); padding: 8px 12px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; border-radius: 999px; }
+  .a4s-reset-btn:hover { background: var(--a4-purple-soft); }
+
+  #ai4-speakers-root .a4s-active-chips { display: flex !important; flex-wrap: wrap; gap: 6px; margin: 14px 0 0 !important; }
+  .a4s-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--a4-purple-soft); color: var(--a4-purple-deep); padding: 5px 6px 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .a4s-chip-remove { width: 18px; height: 18px; border-radius: 999px; border: none; background: rgba(107, 70, 193, 0.15); color: var(--a4-purple-deep); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; font-size: 14px; line-height: 1; }
+  .a4s-chip-remove:hover { background: rgba(107, 70, 193, 0.3); }
+
+  #ai4-speakers-root .a4s-grid { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 20px !important; }
+  @media (max-width: 1200px) { #ai4-speakers-root .a4s-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; } }
+  @media (max-width: 960px)  { #ai4-speakers-root .a4s-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; } }
+  @media (max-width: 720px)  { #ai4-speakers-root .a4s-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 14px !important; } }
+  @media (max-width: 480px)  { #ai4-speakers-root .a4s-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; } }
+
+  /* Card */
+  #ai4-speakers-root .a4s-card {
+    background: var(--a4-card-bg-default) !important;
+    border: 2px solid transparent !important;
+    border-radius: var(--a4-radius) !important;
+    padding: 14px !important;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: var(--a4-shadow-default) !important;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  }
+  #ai4-speakers-root .a4s-card:hover, #ai4-speakers-root .a4s-card:focus-visible {
+    background:
+      linear-gradient(var(--a4-card-bg-hover), var(--a4-card-bg-hover)) padding-box,
+      linear-gradient(135deg, var(--a4-purple) 0%, var(--a4-gold) 100%) border-box !important;
+    transform: translateY(-2px);
+    box-shadow: var(--a4-shadow-hover) !important;
+    outline: none;
+  }
+
+  .a4s-photo { width: 100%; aspect-ratio: 1 / 1; border-radius: var(--a4-radius-sm); overflow: hidden; background: var(--a4-photo-bg); position: relative; }
+  .a4s-photo img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  .a4s-photo .a4s-initials { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 38px; font-weight: 700; letter-spacing: 0.02em; }
+
+  .a4s-text { display: flex; flex-direction: column; gap: 6px; }
+  #ai4-speakers-root .a4s-name { color: var(--a4-purple) !important; font-size: 19px !important; font-weight: 800 !important; line-height: 1.2 !important; letter-spacing: -0.01em; margin: 0 !important; }
+  #ai4-speakers-root .a4s-title { color: var(--a4-text) !important; font-size: 14px !important; font-weight: 400 !important; line-height: 1.35 !important; margin: 0 !important; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #ai4-speakers-root .a4s-org { color: var(--a4-text) !important; font-size: 14px !important; font-weight: 800 !important; line-height: 1.3 !important; margin: auto 0 0 !important; padding-top: 4px; }
+
+  .a4s-skeleton { cursor: default; pointer-events: none; }
+  .a4s-skeleton:hover { background: var(--a4-card-bg-default) !important; transform: none; box-shadow: var(--a4-shadow-default) !important; }
+  .a4s-skeleton .a4s-photo { background: #E0E0E0; }
+  .a4s-skeleton .a4s-line { height: 12px; border-radius: 6px; background: linear-gradient(90deg, #E0E0E0 0%, #EEEEEE 50%, #E0E0E0 100%); background-size: 200% 100%; animation: a4sShimmer 1.4s infinite; }
+  .a4s-skeleton .w-40 { width: 40%; } .a4s-skeleton .w-60 { width: 60%; } .a4s-skeleton .w-80 { width: 80%; }
+  @keyframes a4sShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  .a4s-empty, .a4s-error { text-align: center; padding: 48px 16px; color: var(--a4-text-muted); font-size: 16px; }
+  .a4s-error { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; border-radius: var(--a4-radius-sm); }
+
+  /* ========== Modal ========== */
+  .a4s-modal[hidden] { display: none; }
+  .a4s-modal { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 24px; animation: a4sFadeIn 0.18s ease; }
+  .a4s-modal-backdrop { position: absolute; inset: 0; background: rgba(15, 12, 8, 0.55); backdrop-filter: blur(4px); }
+  .a4s-modal-card { position: relative; background: #fff; border-radius: 18px; max-width: 720px; width: 100%; max-height: 88vh; overflow: hidden; box-shadow: 0 24px 80px rgba(20, 16, 8, 0.25); animation: a4sSlideUp 0.22s ease; display: flex; flex-direction: column; }
+
+  #ai4-speakers-root .a4s-modal-back { position: absolute; top: 14px; left: 14px; display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px 6px 8px !important; border-radius: 999px !important; background: transparent !important; color: var(--a4-purple-deep) !important; font: inherit; font-size: 14px !important; font-weight: 600 !important; cursor: pointer; z-index: 2; transition: background 0.15s ease; }
+  #ai4-speakers-root .a4s-modal-back:hover { background: var(--a4-purple-soft) !important; }
+  .a4s-modal-back svg { width: 16px; height: 16px; }
+
+  #ai4-speakers-root .a4s-modal-close { position: absolute; top: 14px; right: 14px; width: 36px !important; height: 36px !important; border-radius: 999px !important; border: none !important; background: rgba(0,0,0,0.06) !important; color: var(--a4-text) !important; font-size: 24px !important; line-height: 1 !important; cursor: pointer; z-index: 2; transition: background 0.15s ease; padding: 0 !important; }
+  #ai4-speakers-root .a4s-modal-close:hover { background: rgba(0,0,0,0.12) !important; }
+
+  #ai4-speakers-root .a4s-modal-body { padding: 64px 36px 36px !important; max-height: 88vh; overflow-y: auto; }
+  @media (max-width: 600px) { #ai4-speakers-root .a4s-modal-body { padding: 60px 22px 24px !important; } }
+
+  /* ===== Speaker view ===== */
+  .a4s-mv-header { display: grid; grid-template-columns: 140px 1fr; gap: 24px; align-items: start; padding-bottom: 24px; border-bottom: 1px solid var(--a4-divider); margin-bottom: 24px; }
+  @media (max-width: 600px) { .a4s-mv-header { grid-template-columns: 1fr; } }
+  .a4s-mv-photo { width: 100%; aspect-ratio: 1/1; max-width: 140px; border-radius: 12px; overflow: hidden; background: var(--a4-photo-bg); position: relative; }
+  .a4s-mv-photo img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  .a4s-mv-photo .a4s-initials { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 44px; font-weight: 700; }
+  #ai4-speakers-root .a4s-mv-name { color: var(--a4-purple) !important; font-size: 26px !important; font-weight: 800 !important; line-height: 1.2 !important; letter-spacing: -0.01em; margin: 0 0 6px !important; }
+  #ai4-speakers-root .a4s-mv-jobtitle { font-size: 15px !important; color: var(--a4-text) !important; margin: 0 0 4px !important; line-height: 1.4 !important; }
+  #ai4-speakers-root .a4s-mv-org { font-size: 15px !important; font-weight: 800 !important; color: var(--a4-text) !important; margin: 0 !important; line-height: 1.4 !important; }
+
+  #ai4-speakers-root .a4s-mv-section { padding-bottom: 24px !important; margin-bottom: 24px !important; border-bottom: 1px solid var(--a4-divider); }
+  #ai4-speakers-root .a4s-mv-section:last-child { border-bottom: none; margin-bottom: 0 !important; padding-bottom: 0 !important; }
+  #ai4-speakers-root .a4s-mv-h { font-size: 16px !important; font-weight: 800 !important; color: var(--a4-text) !important; margin: 0 0 14px !important; line-height: 1.3 !important; }
+
+  /* About me / bio */
+  .a4s-mv-bio { color: var(--a4-text-muted); font-size: 15px; line-height: 1.6; }
+  #ai4-speakers-root .a4s-mv-bio p { margin: 0 0 14px !important; line-height: 1.6 !important; color: var(--a4-text-muted) !important; font-size: 15px !important; }
+  #ai4-speakers-root .a4s-mv-bio p:last-child { margin-bottom: 0 !important; }
+  .a4s-mv-bio.is-clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  #ai4-speakers-root .a4s-mv-bio-toggle { background: transparent !important; border: none !important; color: var(--a4-purple-deep) !important; font: inherit; font-size: 14px !important; font-weight: 600 !important; padding: 8px 0 0 !important; margin-top: 6px !important; cursor: pointer; text-decoration: underline; }
+
+  /* Info rows (Industry, Job Function, Company Size) */
+  .a4s-mv-info-row { margin-bottom: 14px; }
+  .a4s-mv-info-row:last-child { margin-bottom: 0; }
+  #ai4-speakers-root .a4s-mv-info-label { font-size: 13px !important; font-weight: 800 !important; color: var(--a4-text) !important; margin: 0 0 2px !important; line-height: 1.3 !important; }
+  #ai4-speakers-root .a4s-mv-info-value { font-size: 15px !important; color: var(--a4-text) !important; margin: 0 !important; line-height: 1.4 !important; }
+
+  /* Social links */
+  .a4s-mv-socials { display: flex; flex-wrap: wrap; gap: 10px; }
+  .a4s-mv-social-link { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 999px; background: var(--a4-purple-soft); color: var(--a4-purple-deep); text-decoration: none; transition: background 0.15s ease; }
+  .a4s-mv-social-link:hover { background: rgba(107, 70, 193, 0.16); }
+  .a4s-mv-social-link svg { width: 18px; height: 18px; }
+
+  /* Contact / website */
+  .a4s-mv-contact { display: flex; align-items: center; gap: 10px; }
+  .a4s-mv-contact svg { width: 16px; height: 16px; color: var(--a4-text-muted); flex-shrink: 0; }
+  .a4s-mv-contact a { color: var(--a4-purple-deep); font-size: 15px; word-break: break-all; text-decoration: none; }
+  .a4s-mv-contact a:hover { text-decoration: underline; }
+
+  /* Sessions list */
+  .a4s-mv-sessions { display: flex; flex-direction: column; gap: 12px; }
+  #ai4-speakers-root .a4s-mv-session-card { display: block !important; width: 100%; text-align: left; padding: 14px !important; border-radius: 12px !important; background: #FBFAF7 !important; border: 1px solid var(--a4-border) !important; cursor: pointer; transition: all 0.15s ease; font: inherit; color: inherit; }
+  #ai4-speakers-root .a4s-mv-session-card:hover { border-color: var(--a4-purple) !important; background: var(--a4-purple-soft) !important; }
+  #ai4-speakers-root .a4s-mv-session-title { font-size: 15px !important; font-weight: 800 !important; color: var(--a4-text) !important; line-height: 1.35 !important; margin: 0 0 6px !important; }
+  #ai4-speakers-root .a4s-mv-session-meta { font-size: 13px !important; color: var(--a4-text-muted) !important; line-height: 1.4 !important; display: flex !important; align-items: center !important; gap: 6px !important; margin: 0 !important; }
+  .a4s-mv-session-meta svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+  /* ===== Session view ===== */
+  #ai4-speakers-root .a4s-sv-title { font-size: 24px !important; font-weight: 800 !important; color: var(--a4-text) !important; line-height: 1.25 !important; margin: 0 0 14px !important; letter-spacing: -0.01em; }
+  #ai4-speakers-root .a4s-sv-meta { display: flex !important; flex-direction: column; gap: 8px; padding-bottom: 24px !important; margin-bottom: 24px !important; border-bottom: 1px solid var(--a4-divider); }
+  .a4s-sv-meta-row { display: flex; align-items: center; gap: 8px; color: var(--a4-text-muted); font-size: 14px; line-height: 1.4; }
+  .a4s-sv-meta-row svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .a4s-sv-type-pill { display: inline-block; padding: 4px 10px; background: #F3F4F6; color: var(--a4-text); border-radius: 6px; font-size: 13px; font-weight: 600; }
+
+  /* Session description */
+  #ai4-speakers-root .a4s-sv-description p { margin: 0 0 14px !important; line-height: 1.6 !important; color: var(--a4-text-muted) !important; font-size: 15px !important; }
+  #ai4-speakers-root .a4s-sv-description p:last-child { margin-bottom: 0 !important; }
+
+  /* Co-speaker list */
+  .a4s-sv-speakers { display: flex; flex-direction: column; gap: 14px; }
+  #ai4-speakers-root .a4s-sv-speaker { display: flex !important; align-items: center !important; gap: 14px !important; padding: 8px !important; border-radius: 10px !important; background: transparent !important; border: none !important; cursor: pointer; width: 100%; text-align: left; font: inherit; color: inherit; transition: background 0.15s ease; }
+  #ai4-speakers-root .a4s-sv-speaker:hover { background: var(--a4-purple-soft) !important; }
+  .a4s-sv-speaker-photo { width: 56px; height: 56px; border-radius: 999px; overflow: hidden; background: var(--a4-photo-bg); flex-shrink: 0; position: relative; }
+  .a4s-sv-speaker-photo img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  .a4s-sv-speaker-photo .a4s-initials { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px; font-weight: 700; }
+  .a4s-sv-speaker-text { flex: 1; min-width: 0; }
+  #ai4-speakers-root .a4s-sv-speaker-name { font-size: 16px !important; font-weight: 800 !important; color: var(--a4-text) !important; line-height: 1.3 !important; margin: 0 0 2px !important; }
+  #ai4-speakers-root .a4s-sv-speaker-job { font-size: 13px !important; color: var(--a4-text-muted) !important; line-height: 1.4 !important; margin: 0 !important; }
+  #ai4-speakers-root .a4s-sv-speaker-org { font-size: 13px !important; color: var(--a4-text-muted) !important; line-height: 1.4 !important; margin: 0 !important; }
+
+  
+  /* ===== Mobile card polish (≤ 480px) ===== */
+  @media (max-width: 480px) {
+    #ai4-speakers-root .a4s-card { padding: 10px !important; gap: 10px !important; }
+    #ai4-speakers-root .a4s-name { font-size: 15px !important; }
+    #ai4-speakers-root .a4s-title { font-size: 12px !important; -webkit-line-clamp: 2; }
+    #ai4-speakers-root .a4s-org { font-size: 12px !important; }
+    #ai4-speakers-root .a4s-search input { font-size: 14px !important; padding: 10px 16px 10px 40px !important; }
+    #ai4-speakers-root .a4s-filter-btn { font-size: 12px !important; padding: 7px 12px !important; }
+    #ai4-speakers-root .a4s-controls { margin: 0 0 20px !important; }
+  }
+
+  @keyframes a4sFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes a4sSlideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .a4s-card, .a4s-modal, .a4s-modal-card, .a4s-skeleton .a4s-line { animation: none !important; transition: none !important; } }
+</style>
+
+<script>
+(function () {
+  const root = document.getElementById('ai4-speakers-root');
+  if (!root) return;
+  const WORKER_URL = root.dataset.workerUrl;
+  // Detail endpoint base — strip /speakers from WORKER_URL to get the worker
+  // origin, then append /speakers/:id at fetch time.
+  const WORKER_BASE = WORKER_URL.replace(/\/speakers\/?$/, '');
+
+  // ===== Configuration =====
+  const VISIBLE_FILTERS = ['Track', 'Industry', 'Job Function'];
+  const FACET_ORDER_HINT = ['Track', 'Industry', 'Job Function'];
+  // Per-value minimum: filter dropdown values with fewer than this many
+  // speakers are hidden. Track is intentionally omitted (small curated set).
+  const MIN_FACET_VALUE_COUNT = { 'Industry': 3, 'Job Function': 3 };
+  // Custom field names that should appear as labeled rows in the speaker
+  // info section (in the order listed). Any custom field present on a
+  // speaker but NOT in this list won't show in the modal.
+  const INFO_FIELDS = ['Industry', 'Job Function', 'Company Size'];
+  const BIO_CLAMP_THRESHOLD = 320; // chars before "See more" appears
+  const RENDER_BATCH_SIZE = 60; // cards per progressive-render frame
+  const SORT_OPTIONS = [
+    { value: 'featured', label: 'Featured first' },
+    { value: 'az',       label: 'Last name A→Z' },
+    { value: 'za',       label: 'Last name Z→A' },
+  ];
+
+  // ===== State =====
+  let allSpeakers = [];
+  let speakerById = new Map(); // id → lean speaker from /speakers list
+  let detailCache = new Map(); // id → full speaker from /speakers/:id
+  let detailPromises = new Map(); // id → in-flight Promise (dedupe concurrent fetches)
+  let filtered = [];
+  const widgetState = { search: '', sort: 'featured', filters: {} };
+  // Modal navigation: stack of { type: 'speaker'|'session', data: {...} }
+  let modalStack = [];
+
+  const grid = document.getElementById('a4s-grid');
+  const meta = document.getElementById('a4s-meta');
+  // Belt-and-suspenders hide of speaker count — CSS rule should already do
+  // this but the hidden attribute is harder for theme CSS to override.
+  if (meta) meta.hidden = true;
+  const empty = document.getElementById('a4s-empty');
+  const errorBox = document.getElementById('a4s-error');
+  const searchInput = document.getElementById('a4s-search-input');
+  const modal = document.getElementById('a4s-modal');
+  const modalBody = document.getElementById('a4s-modal-body');
+  const modalBack = document.getElementById('a4s-modal-back');
+
+  // ===== Fetch with sessionStorage cache =====
+  // On first visit: fetch from Worker, render, store in sessionStorage.
+  // On repeat visits within the same browser session: render from
+  // sessionStorage instantly (< 5 ms), then revalidate in background.
+  const SESSION_CACHE_KEY  = `a4s-speakers-${WORKER_URL}`;
+  const SESSION_CACHE_MAX_AGE = 20 * 60 * 1000; // 20 minutes
+
+  function loadFromSessionCache() {
+    try {
+      const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
+      if (!raw) return null;
+      const { data, cachedAt } = JSON.parse(raw);
+      if (!data || (Date.now() - cachedAt) > SESSION_CACHE_MAX_AGE) return null;
+      return data;
+    } catch (_) { return null; }
+  }
+
+  function saveToSessionCache(data) {
+    try {
+      sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ data, cachedAt: Date.now() }));
+    } catch (_) { /* sessionStorage unavailable (private mode, full quota) — silently skip */ }
+  }
+
+  function initWithData(data) {
+    allSpeakers = data.speakers || [];
+    speakerById = new Map(allSpeakers.map(s => [s.id, s]));
+    buildFilterUI();
+    applyFilters();
+  }
+
+  function fetchFromWorker() {
+    return fetch(WORKER_URL, { credentials: 'omit' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  }
+
+  const cached = loadFromSessionCache();
+  if (cached) {
+    // Render immediately from cache — no network wait
+    initWithData(cached);
+    // Revalidate in background; update grid silently if data changed
+    fetchFromWorker().then(fresh => {
+      saveToSessionCache(fresh);
+      const freshIds = (fresh.speakers || []).map(s => s.id).join(',');
+      const cachedIds = allSpeakers.map(s => s.id).join(',');
+      if (freshIds !== cachedIds) {
+        allSpeakers = fresh.speakers || [];
+        speakerById = new Map(allSpeakers.map(s => [s.id, s]));
+        buildFilterUI();
+        applyFilters();
+      }
+    }).catch(() => { /* background refresh failed — cached data still showing */ });
+  } else {
+    fetchFromWorker()
+      .then(data => { saveToSessionCache(data); initWithData(data); })
+      .catch(err => {
+        console.error('[ai4-speakers]', err);
+        grid.innerHTML = '';
+        errorBox.hidden = false;
+        errorBox.textContent = 'Unable to load speakers right now. Please try again shortly.';
+      });
+  }
+
+  // ===== Facet building =====
+  function buildFacets(speakers) {
+    const facets = {};
+    for (const s of speakers) {
+      for (const cf of (s.customFields || [])) {
+        if (!VISIBLE_FILTERS.includes(cf.name)) continue;
+        if (!facets[cf.name]) facets[cf.name] = new Map();
+        for (const v of (cf.values || [])) facets[cf.name].set(v, (facets[cf.name].get(v) || 0) + 1);
+      }
+    }
+    // Drop individual values below the per-facet minimum count (keeps
+    // dropdowns from being clogged by single-speaker categories).
+    for (const [facetName, valueMap] of Object.entries(facets)) {
+      const minCount = MIN_FACET_VALUE_COUNT[facetName];
+      if (!minCount) continue;
+      for (const [value, count] of valueMap) {
+        if (count < minCount) valueMap.delete(value);
+      }
+    }
+    // Drop entire facets with fewer than 2 distinct surviving values.
+    for (const name of Object.keys(facets)) {
+      if (facets[name].size < 2) delete facets[name];
+    }
+    return facets;
+  }
+
+  // ===== Filter UI =====
+  function buildFilterUI() {
+    const row = document.getElementById('a4s-filter-row');
+    row.innerHTML = '';
+    const facets = buildFacets(allSpeakers);
+    row.appendChild(buildSortDropdown());
+    const facetNames = Object.keys(facets).sort((a, b) => {
+      const ia = FACET_ORDER_HINT.indexOf(a), ib = FACET_ORDER_HINT.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return a.localeCompare(b);
+    });
+    for (const name of facetNames) row.appendChild(buildFilterDropdown(name, facets[name]));
+
+    const reset = document.createElement('button');
+    reset.type = 'button'; reset.className = 'a4s-reset-btn'; reset.textContent = 'Reset'; reset.id = 'a4s-reset-btn'; reset.hidden = true;
+    reset.addEventListener('click', () => {
+      widgetState.filters = {}; widgetState.sort = 'featured'; widgetState.search = '';
+      searchInput.value = '';
+      buildFilterUI(); applyFilters();
+    });
+    row.appendChild(reset);
+  }
+
+  function buildSortDropdown() {
+    const wrap = document.createElement('div');
+    wrap.className = 'a4s-filter';
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'a4s-filter-btn';
+    btn.innerHTML = `<span>Sort: <strong>${labelForSort(widgetState.sort)}</strong></span><svg class="a4s-caret" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const panel = document.createElement('div'); panel.className = 'a4s-filter-panel';
+    for (const opt of SORT_OPTIONS) {
+      const r = document.createElement('label');
+      r.className = 'a4s-filter-option';
+      const radio = document.createElement('input');
+      radio.type = 'radio'; radio.name = 'a4s-sort'; radio.value = opt.value;
+      radio.checked = widgetState.sort === opt.value;
+      radio.addEventListener('change', () => {
+        widgetState.sort = opt.value;
+        btn.querySelector('strong').textContent = opt.label;
+        wrap.classList.remove('open');
+        applyFilters();
+      });
+      const lbl = document.createElement('span');
+      lbl.className = 'a4s-filter-option-label'; lbl.textContent = opt.label;
+      r.appendChild(radio); r.appendChild(lbl);
+      panel.appendChild(r);
+    }
+    btn.addEventListener('click', (e) => { e.stopPropagation(); toggleDropdown(wrap); });
+    wrap.appendChild(btn); wrap.appendChild(panel);
+    return wrap;
+  }
+
+  function labelForSort(v) { return (SORT_OPTIONS.find(s => s.value === v) || SORT_OPTIONS[0]).label; }
+
+  function buildFilterDropdown(facetName, valueMap) {
+    const wrap = document.createElement('div');
+    wrap.className = 'a4s-filter';
+    const selected = widgetState.filters[facetName] || new Set();
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'a4s-filter-btn' + (selected.size > 0 ? ' has-selection' : '');
+    updateFilterBtnLabel(btn, facetName, selected.size);
+
+    const panel = document.createElement('div');
+    panel.className = 'a4s-filter-panel';
+    const values = [...valueMap.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }));
+    for (const [value, count] of values) {
+      const r = document.createElement('label');
+      r.className = 'a4s-filter-option';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = selected.has(value);
+      cb.addEventListener('change', () => {
+        const cur = widgetState.filters[facetName] || new Set();
+        if (cb.checked) cur.add(value); else cur.delete(value);
+        if (cur.size === 0) delete widgetState.filters[facetName];
+        else widgetState.filters[facetName] = cur;
+        btn.classList.toggle('has-selection', cur.size > 0);
+        updateFilterBtnLabel(btn, facetName, cur.size);
+        applyFilters();
+      });
+      const lbl = document.createElement('span'); lbl.className = 'a4s-filter-option-label'; lbl.textContent = value;
+      const cnt = document.createElement('span'); cnt.className = 'a4s-filter-option-count'; cnt.textContent = count;
+      r.appendChild(cb); r.appendChild(lbl); r.appendChild(cnt);
+      panel.appendChild(r);
+    }
+    btn.addEventListener('click', (e) => { e.stopPropagation(); toggleDropdown(wrap); });
+    wrap.appendChild(btn); wrap.appendChild(panel);
+    return wrap;
+  }
+
+  function updateFilterBtnLabel(btn, facetName, count) {
+    btn.innerHTML = `<span>${facetName}</span>${count ? `<span class="a4s-count">${count}</span>` : ''}<svg class="a4s-caret" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+
+  function toggleDropdown(wrap) {
+    const isOpen = wrap.classList.contains('open');
+    document.querySelectorAll('.a4s-filter.open').forEach(el => el.classList.remove('open'));
+    if (!isOpen) wrap.classList.add('open');
+  }
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.a4s-filter.open').forEach(el => el.classList.remove('open'));
+  });
+
+  // ===== Filter / sort pipeline =====
+  function applyFilters() {
+    const q = widgetState.search.trim().toLowerCase();
+    filtered = allSpeakers.filter(s => {
+      if (q) {
+        const haystack = [s.fullName, s.organization, s.jobTitle].join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      for (const [facetName, selectedValues] of Object.entries(widgetState.filters)) {
+        const cf = (s.customFields || []).find(f => f.name === facetName);
+        const speakerValues = cf ? cf.values : [];
+        if (!speakerValues.some(v => selectedValues.has(v))) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      if (widgetState.sort === 'featured') {
+        if (a.featured && b.featured) {
+          const ao = a.featuredOrder ?? Infinity;
+          const bo = b.featuredOrder ?? Infinity;
+          if (ao !== bo) return ao - bo;
+        }
+        if (a.featured !== b.featured) return a.featured ? -1 : 1;
+        const ln = (x) => (x.lastName || '').toLowerCase();
+        return ln(a).localeCompare(ln(b));
+      }
+      const ln = (x) => (x.lastName || '').toLowerCase();
+      const cmp = ln(a).localeCompare(ln(b));
+      return widgetState.sort === 'za' ? -cmp : cmp;
+    });
+
+    renderActiveChips();
+    render();
+  }
+
+  function renderActiveChips() {
+    const wrap = document.getElementById('a4s-active-chips');
+    wrap.innerHTML = '';
+    const reset = document.getElementById('a4s-reset-btn');
+    let total = 0;
+    for (const [facetName, values] of Object.entries(widgetState.filters)) {
+      for (const value of values) {
+        total++;
+        const chip = document.createElement('span');
+        chip.className = 'a4s-chip';
+        chip.innerHTML = `<span><strong>${facetName}:</strong> ${escapeHtml(value)}</span>`;
+        const x = document.createElement('button');
+        x.type = 'button'; x.className = 'a4s-chip-remove'; x.setAttribute('aria-label', 'Remove filter'); x.textContent = '×';
+        x.addEventListener('click', () => {
+          widgetState.filters[facetName].delete(value);
+          if (widgetState.filters[facetName].size === 0) delete widgetState.filters[facetName];
+          buildFilterUI(); applyFilters();
+        });
+        chip.appendChild(x);
+        wrap.appendChild(chip);
+      }
+    }
+    wrap.hidden = total === 0;
+    if (reset) reset.hidden = total === 0 && widgetState.sort === 'featured';
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+  // ===== Render grid =====
+  // Progressive rendering: instead of building all cards in one shot (which
+  // can take 100-300ms for 600 speakers and block the main thread), we render
+  // RENDER_BATCH_SIZE cards per animation frame. The first batch paints in
+  // <16ms making the widget feel instant; subsequent batches fill in over the
+  // next few frames. A renderToken cancels in-flight renders when the user
+  // searches/filters/sorts before the previous render completes.
+  let renderToken = 0;
+  function render() {
+    renderToken++;
+    const myToken = renderToken;
+    grid.innerHTML = '';
+    if (filtered.length === 0) { empty.hidden = false; return; }
+    empty.hidden = true;
+    meta.textContent = filtered.length === allSpeakers.length ? `${allSpeakers.length} speakers` : `${filtered.length} of ${allSpeakers.length} speakers`;
+
+    let i = 0;
+    function renderBatch() {
+      if (myToken !== renderToken) return; // a newer render started, abort this one
+      const frag = document.createDocumentFragment();
+      const end = Math.min(i + RENDER_BATCH_SIZE, filtered.length);
+      for (; i < end; i++) frag.appendChild(buildCard(filtered[i]));
+      grid.appendChild(frag);
+      if (i < filtered.length) requestAnimationFrame(renderBatch);
+    }
+    renderBatch();
+  }
+
+  function buildCard(s) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'a4s-card';
+    card.setAttribute('role', 'listitem');
+    card.setAttribute('aria-label', `${s.fullName}, ${s.jobTitle || ''} at ${s.organization || ''}`);
+    card.addEventListener('click', () => openSpeaker(s));
+
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'a4s-photo';
+    if (s.photoUrl) {
+      const img = document.createElement('img');
+      img.src = s.photoUrl; img.alt = s.fullName; img.loading = 'lazy';
+      img.addEventListener('error', () => { img.remove(); photoWrap.appendChild(buildInitials(s)); });
+      photoWrap.appendChild(img);
+    } else {
+      photoWrap.appendChild(buildInitials(s));
+    }
+    card.appendChild(photoWrap);
+
+    const text = document.createElement('div');
+    text.className = 'a4s-text';
+    const name = document.createElement('h3'); name.className = 'a4s-name'; name.textContent = s.fullName;
+    text.appendChild(name);
+    if (s.jobTitle) {
+      const title = document.createElement('p'); title.className = 'a4s-title'; title.textContent = s.jobTitle;
+      text.appendChild(title);
+    }
+    card.appendChild(text);
+    if (s.organization) {
+      const org = document.createElement('p'); org.className = 'a4s-org'; org.textContent = s.organization;
+      card.appendChild(org);
+    }
+    return card;
+  }
+
+  function buildInitials(s) {
+    const div = document.createElement('div');
+    div.className = 'a4s-initials';
+    const initials = ((s.firstName || '').charAt(0) + (s.lastName || '').charAt(0)).toUpperCase();
+    div.textContent = initials || '?';
+    return div;
+  }
+
+  let searchTimer;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { widgetState.search = searchInput.value; applyFilters(); }, 120);
+  });
+
+  // ============================================================
+  //  Modal: two-view navigation with lazy detail loading
+  //  -----------------------------------------------------------
+  //  The initial /speakers payload is LEAN (no bio/sessions/socials).
+  //  When a user opens a speaker modal, we fetch the FULL record from
+  //  /speakers/:id. Results are cached in `detailCache` for the session,
+  //  and concurrent fetches for the same ID are deduped via `detailPromises`.
+  // ============================================================
+
+  // Fetches a speaker's full record. Returns a Promise<speaker>. Multiple
+  // simultaneous callers for the same ID share one in-flight request.
+  function loadSpeakerDetail(id) {
+    if (detailCache.has(id)) return Promise.resolve(detailCache.get(id));
+    if (detailPromises.has(id)) return detailPromises.get(id);
+
+    const promise = fetch(`${WORKER_BASE}/speakers/${encodeURIComponent(id)}`, { credentials: 'omit' })
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(data => {
+        const speaker = data.speaker;
+        if (!speaker) throw new Error('No speaker in response');
+        detailCache.set(id, speaker);
+        detailPromises.delete(id);
+        return speaker;
+      })
+      .catch(err => {
+        detailPromises.delete(id);
+        throw err;
+      });
+
+    detailPromises.set(id, promise);
+    return promise;
+  }
+
+  function openSpeaker(speaker) {
+    // The `speaker` arg here is the LEAN record from the main grid. We
+    // optimistically push it onto the stack and render immediately (so the
+    // photo/name/title/org show instantly), then upgrade with full data
+    // when the detail fetch resolves.
+    modalStack = [{ type: 'speaker', data: speaker, loading: !detailCache.has(speaker.id) }];
+    showModal();
+    upgradeTopWithDetail(speaker.id);
+  }
+
+  function pushSession(session) {
+    modalStack.push({ type: 'session', data: session });
+    showModal();
+  }
+
+  // Push a speaker by ID — used when navigating from a co-speaker click in
+  // session view. Always goes through the worker's /speakers/:id endpoint
+  // which handles ID resolution (incl. the eventPerson/communityProfile
+  // ID format mismatch via name fallback on the server side).
+  function pushSpeakerById(id, fallbackLean) {
+    // Stack the lean placeholder first so the modal shows instantly.
+    modalStack.push({
+      type: 'speaker',
+      data: detailCache.get(id) || fallbackLean || { id, fullName: '' },
+      loading: !detailCache.has(id),
+    });
+    showModal();
+    upgradeTopWithDetail(id);
+  }
+
+  // Kicks off a detail fetch for the top modal entry and re-renders when
+  // it resolves. If the user navigates away before it lands, the stale
+  // resolution is ignored (we compare the stack top by reference).
+  function upgradeTopWithDetail(id) {
+    const targetEntry = modalStack[modalStack.length - 1];
+    if (!targetEntry) return;
+
+    loadSpeakerDetail(id)
+      .then(fullSpeaker => {
+        // Bail out if the user has navigated away from this entry
+        if (modalStack[modalStack.length - 1] !== targetEntry) return;
+        targetEntry.data = fullSpeaker;
+        targetEntry.loading = false;
+        showModal();
+      })
+      .catch(err => {
+        console.error('[ai4-speakers] detail fetch failed:', err);
+        if (modalStack[modalStack.length - 1] !== targetEntry) return;
+        // Keep the lean data shown; just remove the loading state
+        targetEntry.loading = false;
+        showModal();
+      });
+  }
+
+  function popModal() {
+    if (modalStack.length > 1) {
+      modalStack.pop();
+      showModal();
+    } else {
+      closeModal();
+    }
+  }
+
+  function showModal() {
+    const top = modalStack[modalStack.length - 1];
+    if (!top) return closeModal();
+
+    modalBack.hidden = modalStack.length < 2;
+    modalBody.innerHTML = '';
+
+    if (top.type === 'speaker') {
+      modalBody.appendChild(renderSpeakerView(top.data, top.loading));
+    } else if (top.type === 'session') {
+      modalBody.appendChild(renderSessionView(top.data));
+    }
+
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    // Reset scroll on view change
+    modalBody.scrollTop = 0;
+  }
+
+  function closeModal() {
+    modal.hidden = true;
+    modalStack = [];
+    document.body.style.overflow = '';
+  }
+
+  modalBack.addEventListener('click', popModal);
+  modal.addEventListener('click', (e) => { if (e.target.dataset.close) closeModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (modal.hidden) return;
+    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Backspace' && e.target === document.body && modalStack.length > 1) {
+      e.preventDefault();
+      popModal();
+    }
+  });
+
+  // ===== Speaker view =====
+  function renderSpeakerView(s, loading) {
+    const root = document.createElement('div');
+
+    // Header: photo + name/title/org. This renders identically whether we
+    // have the lean record or the full one — all of these fields are in
+    // the lean projection, so the modal looks "real" immediately on open.
+    const header = document.createElement('div');
+    header.className = 'a4s-mv-header';
+
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'a4s-mv-photo';
+    if (s.photoUrl) {
+      const img = document.createElement('img');
+      img.src = s.photoUrl; img.alt = s.fullName;
+      img.addEventListener('error', () => { img.remove(); photoWrap.appendChild(buildInitials(s)); });
+      photoWrap.appendChild(img);
+    } else {
+      photoWrap.appendChild(buildInitials(s));
+    }
+    header.appendChild(photoWrap);
+
+    const headerText = document.createElement('div');
+    const name = document.createElement('h2'); name.className = 'a4s-mv-name'; name.textContent = s.fullName;
+    headerText.appendChild(name);
+    if (s.jobTitle) {
+      const jt = document.createElement('p'); jt.className = 'a4s-mv-jobtitle'; jt.textContent = s.jobTitle;
+      headerText.appendChild(jt);
+    }
+    if (s.organization) {
+      const org = document.createElement('p'); org.className = 'a4s-mv-org'; org.textContent = s.organization;
+      headerText.appendChild(org);
+    }
+    header.appendChild(headerText);
+    root.appendChild(header);
+
+    // If we're still loading the full record, show a skeleton in place of
+    // the bio/info/socials/sessions sections. Once the detail fetch resolves
+    // we re-render with the real content.
+    if (loading) {
+      const skel = document.createElement('div');
+      skel.className = 'a4s-mv-section';
+      const line1 = document.createElement('div'); line1.className = 'a4s-line w-80'; line1.style.height = '14px'; line1.style.marginBottom = '10px'; line1.style.borderRadius = '6px';
+      const line2 = document.createElement('div'); line2.className = 'a4s-line w-60'; line2.style.height = '14px'; line2.style.marginBottom = '10px'; line2.style.borderRadius = '6px';
+      const line3 = document.createElement('div'); line3.className = 'a4s-line w-80'; line3.style.height = '14px'; line3.style.borderRadius = '6px';
+      // Reuse the existing skeleton shimmer style by adding a wrapper that
+      // mimics .a4s-skeleton's child treatment.
+      const wrap = document.createElement('div');
+      wrap.className = 'a4s-skeleton';
+      wrap.style.background = 'transparent';
+      wrap.style.boxShadow = 'none';
+      wrap.style.padding = '0';
+      wrap.appendChild(line1); wrap.appendChild(line2); wrap.appendChild(line3);
+      skel.appendChild(wrap);
+      root.appendChild(skel);
+      return root;
+    }
+
+    // About me / bio
+    if (s.biography && s.biography.trim()) {
+      const section = document.createElement('div');
+      section.className = 'a4s-mv-section';
+      const h = document.createElement('h3'); h.className = 'a4s-mv-h'; h.textContent = 'About me';
+      section.appendChild(h);
+
+      const bio = document.createElement('div');
+      bio.className = 'a4s-mv-bio';
+      // Split bio on blank-line breaks and render as paragraphs so each gets
+      // proper visual spacing. Single newlines within a paragraph become spaces.
+      const paragraphs = s.biography.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
+      for (const para of paragraphs) {
+        const p = document.createElement('p');
+        p.textContent = para.replace(/\n/g, ' ');
+        bio.appendChild(p);
+      }
+      section.appendChild(bio);
+
+      if (s.biography.length > BIO_CLAMP_THRESHOLD) {
+        bio.classList.add('is-clamped');
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'a4s-mv-bio-toggle';
+        toggle.textContent = 'See more';
+        toggle.addEventListener('click', () => {
+          const isClamped = bio.classList.toggle('is-clamped');
+          toggle.textContent = isClamped ? 'See more' : 'See less';
+        });
+        section.appendChild(toggle);
+      }
+      root.appendChild(section);
+    }
+
+    // Info rows: Industry, Job Function, Company Size
+    const infoRows = INFO_FIELDS.map(name => {
+      const cf = (s.customFields || []).find(f => f.name === name);
+      if (!cf || !cf.values || cf.values.length === 0) return null;
+      return { name, value: cf.values.join(', ') };
+    }).filter(Boolean);
+
+    if (infoRows.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'a4s-mv-section';
+      for (const row of infoRows) {
+        const wrap = document.createElement('div');
+        wrap.className = 'a4s-mv-info-row';
+        const label = document.createElement('p'); label.className = 'a4s-mv-info-label'; label.textContent = row.name;
+        const value = document.createElement('p'); value.className = 'a4s-mv-info-value'; value.textContent = row.value;
+        wrap.appendChild(label); wrap.appendChild(value);
+        section.appendChild(wrap);
+      }
+      root.appendChild(section);
+    }
+
+    // Social media (icons)
+    const socials = (s.socials || []).filter(soc => soc.profile);
+    if (socials.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'a4s-mv-section';
+      const h = document.createElement('h3'); h.className = 'a4s-mv-h'; h.textContent = 'Social media';
+      section.appendChild(h);
+      const list = document.createElement('div');
+      list.className = 'a4s-mv-socials';
+      for (const soc of socials) {
+        const a = document.createElement('a');
+        a.href = socialUrl(soc); a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.className = 'a4s-mv-social-link';
+        a.title = friendlySocialName(soc.type);
+        a.setAttribute('aria-label', friendlySocialName(soc.type));
+        a.innerHTML = socialIcon(soc.type);
+        list.appendChild(a);
+      }
+      section.appendChild(list);
+      root.appendChild(section);
+    }
+
+    // Contact details (website)
+    if (s.websiteUrl) {
+      const section = document.createElement('div');
+      section.className = 'a4s-mv-section';
+      const h = document.createElement('h3'); h.className = 'a4s-mv-h'; h.textContent = 'Contact details';
+      section.appendChild(h);
+      const row = document.createElement('div');
+      row.className = 'a4s-mv-contact';
+      row.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>`;
+      const a = document.createElement('a');
+      a.href = s.websiteUrl; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = s.websiteUrl;
+      row.appendChild(a);
+      section.appendChild(row);
+      root.appendChild(section);
+    }
+
+    // Is speaking at
+    if (s.sessions && s.sessions.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'a4s-mv-section';
+      const h = document.createElement('h3'); h.className = 'a4s-mv-h'; h.textContent = 'Is speaking at';
+      section.appendChild(h);
+      const list = document.createElement('div'); list.className = 'a4s-mv-sessions';
+      for (const session of s.sessions) {
+        list.appendChild(buildSessionCard(session));
+      }
+      section.appendChild(list);
+      root.appendChild(section);
+    }
+
+    return root;
+  }
+
+  function buildSessionCard(session) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'a4s-mv-session-card';
+    card.addEventListener('click', () => pushSession(session));
+
+    const title = document.createElement('div');
+    title.className = 'a4s-mv-session-title';
+    title.textContent = session.title || 'Untitled session';
+    card.appendChild(title);
+
+    if (session.beginsAt) {
+      const meta = document.createElement('div');
+      meta.className = 'a4s-mv-session-meta';
+      meta.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg><span>${formatSessionTime(session.beginsAt, session.endsAt)}</span>`;
+      card.appendChild(meta);
+    }
+    return card;
+  }
+
+  // ===== Session view =====
+  function renderSessionView(session) {
+    const root = document.createElement('div');
+
+    const title = document.createElement('h2');
+    title.className = 'a4s-sv-title';
+    title.textContent = session.title || 'Untitled session';
+    root.appendChild(title);
+
+    const metaWrap = document.createElement('div');
+    metaWrap.className = 'a4s-sv-meta';
+
+    if (session.beginsAt) {
+      const row = document.createElement('div');
+      row.className = 'a4s-sv-meta-row';
+      row.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg><span>${formatSessionTimeFull(session.beginsAt, session.endsAt)}</span>`;
+      metaWrap.appendChild(row);
+    }
+
+    if (session.type) {
+      const row = document.createElement('div');
+      row.className = 'a4s-sv-meta-row';
+      const pill = document.createElement('span');
+      pill.className = 'a4s-sv-type-pill';
+      pill.textContent = formatSessionType(session.type);
+      row.appendChild(pill);
+      metaWrap.appendChild(row);
+    }
+
+    root.appendChild(metaWrap);
+
+    // Description
+    if (session.description && session.description.trim()) {
+      const section = document.createElement('div');
+      section.className = 'a4s-mv-section';
+      const h = document.createElement('h3'); h.className = 'a4s-mv-h'; h.textContent = 'About this session';
+      section.appendChild(h);
+
+      const desc = document.createElement('div');
+      desc.className = 'a4s-sv-description';
+      const paragraphs = session.description.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
+      for (const para of paragraphs) {
+        const p = document.createElement('p');
+        p.textContent = para.replace(/\n/g, ' ');
+        desc.appendChild(p);
+      }
+      section.appendChild(desc);
+      root.appendChild(section);
+    }
+
+    // Co-speakers
+    const speakers = session.speakers || [];
+    if (speakers.length > 0) {
+      const section = document.createElement('div');
+      section.className = 'a4s-mv-section';
+      const h = document.createElement('h3'); h.className = 'a4s-mv-h'; h.textContent = 'Speakers';
+      section.appendChild(h);
+      const list = document.createElement('div');
+      list.className = 'a4s-sv-speakers';
+      for (const sp of speakers) {
+        list.appendChild(buildCoSpeakerRow(sp));
+      }
+      section.appendChild(list);
+      root.appendChild(section);
+    }
+
+    return root;
+  }
+
+  function buildCoSpeakerRow(sp) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'a4s-sv-speaker';
+    btn.addEventListener('click', () => {
+      // Use the worker's /speakers/:id endpoint which handles the
+      // eventPerson/communityProfile ID mismatch server-side via the
+      // findByCoSpeakerId fallback. The lean record we already have
+      // (sp) is enough to render the modal header instantly.
+      pushSpeakerById(sp.id, {
+        id: sp.id,
+        firstName: sp.firstName, lastName: sp.lastName, fullName: sp.fullName,
+        jobTitle: sp.jobTitle, organization: sp.organization, photoUrl: sp.photoUrl,
+      });
+    });
+
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'a4s-sv-speaker-photo';
+    if (sp.photoUrl) {
+      const img = document.createElement('img');
+      img.src = sp.photoUrl; img.alt = sp.fullName;
+      img.addEventListener('error', () => { img.remove(); photoWrap.appendChild(buildInitials(sp)); });
+      photoWrap.appendChild(img);
+    } else {
+      photoWrap.appendChild(buildInitials(sp));
+    }
+    btn.appendChild(photoWrap);
+
+    const text = document.createElement('div');
+    text.className = 'a4s-sv-speaker-text';
+    const name = document.createElement('div'); name.className = 'a4s-sv-speaker-name'; name.textContent = sp.fullName;
+    text.appendChild(name);
+    if (sp.jobTitle) {
+      const job = document.createElement('div'); job.className = 'a4s-sv-speaker-job'; job.textContent = sp.jobTitle;
+      text.appendChild(job);
+    }
+    if (sp.organization) {
+      const org = document.createElement('div'); org.className = 'a4s-sv-speaker-org'; org.textContent = sp.organization;
+      text.appendChild(org);
+    }
+    btn.appendChild(text);
+    return btn;
+  }
+
+  // Display all session times in Pacific (the conference is at The Venetian
+  // in Las Vegas). Change DISPLAY_TIMEZONE for events in other zones.
+  const DISPLAY_TIMEZONE = 'America/Los_Angeles';
+  const DISPLAY_TIMEZONE_LABEL = 'PT';
+
+  // Swapcard's GraphQL API returns datetime strings WITHOUT a timezone suffix
+  // (e.g. "2026-08-05T08:30:00" — no Z, no offset). These represent the
+  // venue's local clock time. JavaScript parses such strings as the user's
+  // browser-local time, which means a New York viewer would see an 8:30 AM
+  // Pacific session display as 5:30 AM PT (8:30 ET → 12:30 UTC → 5:30 PDT).
+  //
+  // To handle this correctly, we detect whether the string has timezone info:
+  //   - Z-suffixed or offset-tagged strings → parse normally (proper UTC)
+  //   - Naive strings → extract the clock components and treat them as
+  //     already being in DISPLAY_TIMEZONE (build a "fake UTC" Date with the
+  //     same components, then format with timeZone: 'UTC' so the components
+  //     come back unchanged).
+  //
+  // Both code paths produce consistent output for the same intended time.
+  function getDisplayDate(iso) {
+    if (!iso) return null;
+    if (/Z$|[+-]\d{2}:?\d{2}$/.test(iso)) {
+      return { date: new Date(iso), tz: DISPLAY_TIMEZONE };
+    }
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return null;
+    return {
+      date: new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0))),
+      tz: 'UTC',
+    };
+  }
+
+  // ===== Formatters =====
+  function formatSessionTime(beginsAt, endsAt) {
+    try {
+      const start = getDisplayDate(beginsAt);
+      if (!start) return '';
+      const dateOpts = { timeZone: start.tz, weekday: 'long', month: 'long', day: 'numeric' };
+      const timeOpts = { timeZone: start.tz, hour: 'numeric', minute: '2-digit' };
+      const dateStr = start.date.toLocaleDateString('en-US', dateOpts);
+      const startTime = start.date.toLocaleTimeString('en-US', timeOpts);
+      if (!endsAt) return `${dateStr} · ${startTime} ${DISPLAY_TIMEZONE_LABEL}`;
+      const end = getDisplayDate(endsAt);
+      const endTime = end.date.toLocaleTimeString('en-US', { timeZone: end.tz, hour: 'numeric', minute: '2-digit' });
+      return `${dateStr} · ${startTime} – ${endTime} ${DISPLAY_TIMEZONE_LABEL}`;
+    } catch { return ''; }
+  }
+
+  function formatSessionTimeFull(beginsAt, endsAt) {
+    try {
+      const start = getDisplayDate(beginsAt);
+      if (!start) return '';
+      const dateOpts = { timeZone: start.tz, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' };
+      const timeOpts = { timeZone: start.tz, hour: 'numeric', minute: '2-digit' };
+      const dateStr = start.date.toLocaleDateString('en-US', dateOpts);
+      const startTime = start.date.toLocaleTimeString('en-US', timeOpts);
+      if (!endsAt) return `${dateStr} at ${startTime} ${DISPLAY_TIMEZONE_LABEL}`;
+      const end = getDisplayDate(endsAt);
+      const endTime = end.date.toLocaleTimeString('en-US', { timeZone: end.tz, hour: 'numeric', minute: '2-digit' });
+      const startDate = start.date.toLocaleDateString('en-US', { timeZone: start.tz });
+      const endDate = end.date.toLocaleDateString('en-US', { timeZone: end.tz });
+      const sameDay = startDate === endDate;
+      if (sameDay) return `${dateStr} · ${startTime} to ${endTime} ${DISPLAY_TIMEZONE_LABEL}`;
+      const endDayStr = end.date.toLocaleDateString('en-US', { timeZone: end.tz, weekday: 'long', month: 'long', day: 'numeric' });
+      return `${dateStr} ${startTime} – ${endDayStr} ${endTime} ${DISPLAY_TIMEZONE_LABEL}`;
+    } catch { return ''; }
+  }
+
+  function formatSessionType(type) {
+    if (!type) return '';
+    return type.split(/[_\s]+/).map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+  }
+
+  function socialUrl(soc) {
+    const p = soc.profile || '';
+    if (/^https?:\/\//i.test(p)) return p;
+    switch (soc.type) {
+      case 'LINKEDIN': return 'https://linkedin.com/in/' + p;
+      case 'TWITTER': return 'https://twitter.com/' + p.replace(/^@/, '');
+      case 'X': return 'https://x.com/' + p.replace(/^@/, '');
+      case 'FACEBOOK': return 'https://facebook.com/' + p;
+      case 'INSTAGRAM': return 'https://instagram.com/' + p.replace(/^@/, '');
+      default: return p;
+    }
+  }
+  function friendlySocialName(type) { return type ? type.charAt(0) + type.slice(1).toLowerCase() : 'Link'; }
+
+  function socialIcon(type) {
+    const ic = {
+      LINKEDIN: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14zM8.34 9.5h-2.7v8.16h2.7V9.5zM7 5.84a1.56 1.56 0 1 0 0 3.12 1.56 1.56 0 0 0 0-3.12zm11.16 11.82V13.2c0-2.34-1.27-3.43-2.96-3.43-1.36 0-1.97.75-2.31 1.27V9.5H10.2v8.16h2.7v-4.5c0-1.18.22-2.32 1.69-2.32 1.45 0 1.46 1.35 1.46 2.4v4.42h2.71z"/></svg>',
+      TWITTER:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 5.92a8.2 8.2 0 0 1-2.36.65 4.12 4.12 0 0 0 1.81-2.27 8.2 8.2 0 0 1-2.6 1A4.1 4.1 0 0 0 11.87 9.1a11.65 11.65 0 0 1-8.46-4.29 4.1 4.1 0 0 0 1.27 5.47 4.1 4.1 0 0 1-1.86-.51v.05a4.1 4.1 0 0 0 3.29 4.02 4.1 4.1 0 0 1-1.85.07 4.1 4.1 0 0 0 3.83 2.85 8.23 8.23 0 0 1-5.1 1.76A8.4 8.4 0 0 1 2 18.4a11.62 11.62 0 0 0 6.29 1.84c7.55 0 11.68-6.25 11.68-11.68v-.53A8.34 8.34 0 0 0 22 5.92z"/></svg>',
+      X:        '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+      FACEBOOK: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.5-3.89 3.78-3.89 1.1 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56V12h2.78l-.45 2.89h-2.33v6.99A10 10 0 0 0 22 12z"/></svg>',
+      INSTAGRAM:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.16c3.2 0 3.58 0 4.85.07 3.25.15 4.77 1.69 4.92 4.92.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.15 3.23-1.66 4.77-4.92 4.92-1.27.06-1.65.07-4.85.07s-3.58 0-4.85-.07c-3.26-.15-4.77-1.69-4.92-4.92-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.15-3.23 1.66-4.77 4.92-4.92 1.27-.06 1.65-.07 4.85-.07zm0 5.84a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm6.4-.85a.93.93 0 1 0-1.86 0 .93.93 0 0 0 1.86 0zM12 14.6a2.6 2.6 0 1 1 0-5.2 2.6 2.6 0 0 1 0 5.2z"/></svg>',
+    };
+    return ic[type] || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>';
+  }
+})();
+</script>
