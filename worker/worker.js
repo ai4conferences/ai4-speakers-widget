@@ -364,18 +364,20 @@ async function fetchAllSpeakers(env) {
     cursor = { first: PAGE_SIZE, after: page.pageInfo.endCursor };
   }
 
-  // Filter to speakers — anyone in one of the speaker groups AND visible
-  // at the event level. withEvent.isVisible maps to the "User visible to
-  // others at Event Level" toggle in the Swapcard admin UI.
-  // Confirmed field: EventPersonWithEvent.isVisible (Boolean!) per Swapcard docs.
-  const speakers = allPeople.filter((p) => {
-    const inSpeakerGroup = (p.groups || []).some((g) => speakerGroupIds.includes(g.id));
-    if (!inSpeakerGroup) return false;
-    if (p.withEvent?.isVisible === false) return false;
-    return true;
-  });
+  // Filter to speakers in one of the speaker groups
+  const speakers = allPeople.filter((p) =>
+    (p.groups || []).some((g) => speakerGroupIds.includes(g.id))
+  );
 
-  return speakers.map((p) => normalizePerson(p, { featuredGroupId, featuredOrderField, eventId: env.EVENT_ID }));
+  // Normalize first so customFields are easy to inspect, then filter out
+  // anyone with the "Widget Visibility" custom field set to "Hidden".
+  // This field is managed in Swapcard: Event → Custom Fields → Widget Visibility (Select).
+  return speakers
+    .map((p) => normalizePerson(p, { featuredGroupId, featuredOrderField, eventId: env.EVENT_ID }))
+    .filter((p) => {
+      const vis = (p.customFields || []).find(f => f.name === 'Widget Visibility');
+      return !(vis && vis.value === 'Hidden');
+    });
 }
 
 function normalizePerson(p, { featuredGroupId, featuredOrderField, eventId }) {
