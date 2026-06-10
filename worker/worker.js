@@ -1,28 +1,26 @@
 /**
- * Ai4 Speakers Widget — Cloudflare Worker (v6)
+ * Ai4 Speakers Widget — Cloudflare Worker (v6d)
  * =============================================
  *
  * Proxies the Swapcard Content API. Holds SWAPCARD_API_KEY as a secret.
+ * Caches a single full-data payload at the edge; projects to two response
+ * shapes for the two public endpoints.
  *
  * Endpoints:
- *   GET /speakers       — LEAN list (id, name, title, org, photo, customFields).
- *                         Fetched with a minimal Swapcard query — no bio, sessions,
- *                         or socials. Typically < 3 s cold, ~200 ms warm.
- *   GET /speakers/:id   — FULL record (bio, sessions+co-speakers, socials, website).
- *                         Fetched on-demand when user opens a modal; cached separately.
+ *   GET /speakers       — LEAN list (no bio/sessions/socials). Used for
+ *                         initial card render. ~400 KB for ~600 speakers.
+ *   GET /speakers/:id   — FULL record (bio, sessions+co-speakers, socials,
+ *                         website). Fetched on-demand when user opens a
+ *                         speaker modal. ~3-15 KB per record.
  *   GET /diagnostics    — Schema discovery: groups + custom field definitions
  *
- * v6 performance improvements over v5:
- *   - TWO Swapcard queries: LEAN_PEOPLE_QUERY (list page, no bio/sessions/socials)
- *     and FULL_PEOPLE_QUERY (detail modal, all fields). The lean fetch is ~10×
- *     smaller and ~10× faster than the old combined query.
- *   - TWO independent caches: lean list (LEAN_CACHE_TTL) and full data
- *     (FULL_CACHE_TTL). Both use stale-while-revalidate so users always get
- *     an instant response from cache; background refresh runs after the response.
- *   - Longer TTLs reduce cold-miss frequency. Cron keeps lean cache warm.
- *   - Optional Workers KV binding (SPEAKERS_KV): if present, lean list is stored
- *     in KV (globally replicated) instead of the regional Cache API, eliminating
- *     per-datacenter cold starts entirely.
+ * v5 changes from v4:
+ *   - Split into lean-list + per-speaker-detail endpoints. Initial page load
+ *     downloads ~400 KB instead of ~2 MB. Modal opens trigger a small
+ *     follow-up fetch for the speaker's full record.
+ *   - Single internal cache holds the full normalized speaker list; both
+ *     endpoints project from it. Detail lookups also tolerate co-speaker
+ *     IDs (communityProfile.id) by falling back to a name index.
  *
  * Setup:
  *   wrangler secret put SWAPCARD_API_KEY --env staging
@@ -30,16 +28,7 @@
  */
 
 const SWAPCARD_ENDPOINT = "https://developer.swapcard.com/event-admin/graphql";
-
-// Lean list: how long to serve cached data before a background refresh.
-// Cron runs every 5 min so this is effectively always warm.
-const LEAN_CACHE_TTL  = 1800;  // 30 min (was 600 s / 10 min)
-// Full detail data changes less often; cache for longer.
-const FULL_CACHE_TTL  = 3600;  // 1 hour
-// Stale-while-revalidate window: if age is within this factor of TTL, serve
-// stale immediately and refresh in background.
-const STALE_FACTOR    = 0.8;   // refresh when > 80% of TTL has elapsed
-
+const CACHE_TTL_SECONDS = 1800; // 30 min — wider safety buffer for 5-min cron
 // Page size for paginating Swapcard's eventPerson query. Bigger = fewer
 // round-trips. If Swapcard rejects 500 with a "page size too large" error,
 // drop this to 250 or 200.
@@ -79,53 +68,16 @@ const FIELD_DEFINITIONS_QUERY = /* GraphQL */ `
 `;
 
 /**
- * LEAN query — card list only. No bio, sessions, socials, or websiteUrl.
- * Removing speakerOnPlannings alone cuts the Swapcard response by ~10× for
- * events with many sessions. This is the query used for the initial page load.
+ * People query.
+ *
+ * Note: speakerOnPlannings returns the sessions where this person is a speaker.
+ * The Swapcard schema docs show speakerOnPlannings { id title } as the minimal
+ * shape — we extend it with the fields we need for the session view of the
+ * modal. If the schema rejects any of these, hit /diagnostics to introspect
+ * and adjust.
  */
-const LEAN_PEOPLE_QUERY = /* GraphQL */ `
-  query EventSpeakersLean($eventId: ID!, $cursor: CursorPaginationInput) {
-    eventPerson(eventId: $eventId, cursor: $cursor) {
-      pageInfo { hasNextPage endCursor }
-      totalCount
-      nodes {
-        id
-        firstName
-        lastName
-        jobTitle
-        organization
-        photoUrl
-        groups { id name }
-        withEvent(eventId: $eventId) {
-          fields {
-            __typename
-            ... on SelectField {
-              translations { value language }
-              definition { id translations { name language } }
-            }
-            ... on MultipleSelectField {
-              translations { value language }
-              definition { id translations { name language } }
-            }
-            ... on NumberField {
-              value
-              definition { id translations { name language } }
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
-/**
- * FULL query — everything needed for the speaker detail modal.
- * Only fetched by the cron job and on /speakers/:id cache misses.
- * speakerOnPlannings returns the sessions where this person is a speaker.
- * If the schema rejects any fields, hit /diagnostics to introspect.
- */
-const FULL_PEOPLE_QUERY = /* GraphQL */ `
-  query EventSpeakersFull($eventId: ID!, $cursor: CursorPaginationInput) {
+const PEOPLE_QUERY = /* GraphQL */ `
+  query EventSpeakers($eventId: ID!, $cursor: CursorPaginationInput) {
     eventPerson(eventId: $eventId, cursor: $cursor) {
       pageInfo { hasNextPage endCursor }
       totalCount
@@ -161,6 +113,7 @@ const FULL_PEOPLE_QUERY = /* GraphQL */ `
           }
         }
         withEvent(eventId: $eventId) {
+          isVisible
           fields {
             __typename
             ... on SelectField {
@@ -213,24 +166,16 @@ export default {
     }
   },
 
-  // Cron trigger: keeps caches warm so users never pay cold-fetch latency.
-  // Lean refresh is fast (~2-5 s); full refresh runs in background.
+  // Runs on cron triggers configured in wrangler.toml. Refreshes the full
+  // speaker dataset so the lean /speakers and detail /speakers/:id endpoints
+  // both serve from a warm cache. Without this, the first user every cache
+  // expiry would pay ~25s of cold fetch latency.
   async scheduled(event, env, ctx) {
     try {
-      // Always refresh lean cache — this is what the page load uses
-      const leanSpeakers = await fetchLeanSpeakers(env);
-      await writeLeanCache(env, null, leanSpeakers);
-      console.log(`scheduled lean refresh: ${leanSpeakers.length} speakers cached`);
-
-      // Refresh full cache in the background (don't block cron completion)
-      ctx.waitUntil(
-        fetchFullSpeakers(env)
-          .then(full => writeFullCache(env, null, full))
-          .then(() => console.log("scheduled full refresh complete"))
-          .catch(err => console.error("scheduled full refresh failed:", err))
-      );
+      await refreshSpeakerCache(env);
+      console.log("scheduled cache refresh completed");
     } catch (err) {
-      console.error("scheduled lean refresh failed:", err);
+      console.error("scheduled cache refresh failed:", err);
     }
   },
 };
@@ -261,103 +206,30 @@ async function handleDiagnostics(env, cors) {
 }
 
 // ============================================================
-//  Cache helpers — lean list + full detail, independent TTLs
-//  ----------------------------------------------------------------
-//  Both use stale-while-revalidate: if cached data exists (even if
-//  old), return it immediately and kick off a background refresh via
-//  ctx.waitUntil(). This means users NEVER wait for a cold Swapcard
-//  fetch during normal operation.
-//
-//  Optional KV: if the SPEAKERS_KV binding is present, lean data is
-//  stored there (globally replicated) instead of the regional Cache API.
-//  Add to wrangler.toml:
-//    [[kv_namespaces]]
-//    binding = "SPEAKERS_KV"
-//    id = "YOUR_KV_NAMESPACE_ID"
-// ============================================================
-
-function leanCacheKey(env) {
-  return `speakers-lean-v1-${env.EVENT_ID}`;
-}
-function fullCacheKey(env) {
-  return new Request(`https://cache.internal/speakers-full-v1?ev=${env.EVENT_ID}`, { method: "GET" });
-}
-
-/** Write lean list to KV (if available) and Cache API */
-async function writeLeanCache(env, ctx, speakers) {
-  const payload = JSON.stringify(speakers);
-  const now = Date.now();
-
-  // KV: store with metadata timestamp so we can check age on read
-  if (env.SPEAKERS_KV) {
-    const p = env.SPEAKERS_KV.put(leanCacheKey(env), payload, {
-      expirationTtl: LEAN_CACHE_TTL * 4, // let KV keep it 4× longer; we do our own staleness check
-      metadata: { cachedAt: now },
-    });
-    if (ctx) ctx.waitUntil(p); else await p;
-  }
-
-  // Cache API fallback (regional)
-  const cacheResp = new Response(JSON.stringify({ speakers, cachedAt: now }), {
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": `public, max-age=${LEAN_CACHE_TTL}`,
-    },
-  });
-  const p2 = caches.default.put(`https://cache.internal/speakers-lean-v1?ev=${env.EVENT_ID}`, cacheResp);
-  if (ctx) ctx.waitUntil(p2); else await p2;
-}
-
-/** Read lean list. Returns { speakers, cachedAt } or null. */
-async function readLeanCache(env) {
-  // Try KV first (global)
-  if (env.SPEAKERS_KV) {
-    try {
-      const { value, metadata } = await env.SPEAKERS_KV.getWithMetadata(leanCacheKey(env));
-      if (value) return { speakers: JSON.parse(value), cachedAt: metadata?.cachedAt || 0 };
-    } catch (_) { /* fall through to Cache API */ }
-  }
-
-  // Cache API fallback
-  const cached = await caches.default.match(`https://cache.internal/speakers-lean-v1?ev=${env.EVENT_ID}`);
-  if (cached) {
-    const body = await cached.json();
-    return { speakers: body.speakers, cachedAt: body.cachedAt || 0 };
-  }
-  return null;
-}
-
-/** Write full speaker list to Cache API */
-async function writeFullCache(env, ctx, speakers) {
-  const now = Date.now();
-  const cacheResp = new Response(JSON.stringify({ speakers, cachedAt: now }), {
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": `public, max-age=${FULL_CACHE_TTL}`,
-    },
-  });
-  const p = caches.default.put(fullCacheKey(env), cacheResp);
-  if (ctx) ctx.waitUntil(p); else await p;
-}
-
-/** Read full speaker list. Returns { speakers, cachedAt } or null. */
-async function readFullCache(env) {
-  const cached = await caches.default.match(fullCacheKey(env));
-  if (!cached) return null;
-  const body = await cached.json();
-  return { speakers: body.speakers, cachedAt: body.cachedAt || 0 };
-}
-
-/** True if cached data is stale enough to warrant a background refresh. */
-function isStale(cachedAt, ttl) {
-  return (Date.now() - cachedAt) > ttl * STALE_FACTOR * 1000;
-}
-
-// ============================================================
 //  /speakers + /speakers/:id
+//  ----------------------------------------------------------------
+//  Both endpoints share a single cached payload containing the FULL
+//  normalized speaker list. Each endpoint projects the cached data to
+//  its own response shape:
+//
+//   /speakers      → array of lean cards (id, name, title, org, photo,
+//                    customFields, featured info). For initial render.
+//   /speakers/:id  → full record for one speaker (bio, sessions, socials,
+//                    website). For modal open.
+//
+//  Caching one dataset and projecting twice avoids duplicating the
+//  expensive Swapcard fetch. The scheduled handler refreshes this single
+//  payload on cron.
 // ============================================================
 
-// Fields returned in the lean /speakers list response.
+// The cache stores the FULL normalized payload so both endpoints can serve
+// from it. We use one stable key regardless of incoming request URL.
+function makeCacheKey(env) {
+  return new Request(`https://cache.internal/speakers-full?v=${env.EVENT_ID}`, { method: "GET" });
+}
+
+// Fields that the lean /speakers card-list response carries. Anything
+// outside this list lives in /speakers/:id only.
 const LEAN_FIELDS = [
   "id", "fullName", "firstName", "lastName",
   "jobTitle", "organization", "photoUrl",
@@ -370,38 +242,46 @@ function projectLean(speaker) {
   return lean;
 }
 
-async function handleSpeakersList(request, env, ctx, cors) {
-  const url = new URL(request.url);
-  const forceRefresh = url.searchParams.has("refresh");
+// Returns the full speaker list from cache, or fetches+caches fresh data
+// if missing. Both endpoints call this.
+async function getOrFetchSpeakers(env, ctx, options = {}) {
+  const cache = caches.default;
+  const cacheKey = makeCacheKey(env);
 
-  let speakers = null;
-  let fromCache = false;
-  let needsRefresh = forceRefresh;
-
-  if (!forceRefresh) {
-    const cached = await readLeanCache(env);
+  if (!options.forceRefresh) {
+    const cached = await cache.match(cacheKey);
     if (cached) {
-      speakers = cached.speakers;
-      fromCache = true;
-      // Schedule background refresh if stale, but return immediately
-      if (isStale(cached.cachedAt, LEAN_CACHE_TTL)) {
-        needsRefresh = true;
-      }
+      return { speakers: await cached.json(), fromCache: true };
     }
   }
 
-  if (!speakers) {
-    // Cold miss — must fetch synchronously (user waits, but this should be rare)
-    speakers = await fetchLeanSpeakers(env);
-    await writeLeanCache(env, ctx, speakers);
-    fromCache = false;
-    needsRefresh = false;
-  } else if (needsRefresh) {
-    // Stale-while-revalidate: kick off refresh after responding
-    ctx.waitUntil(
-      fetchLeanSpeakers(env).then(fresh => writeLeanCache(env, null, fresh)).catch(console.error)
-    );
+  const speakers = await fetchAllSpeakers(env);
+  const cacheable = new Response(JSON.stringify(speakers), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
+    },
+  });
+
+  if (ctx) {
+    ctx.waitUntil(cache.put(cacheKey, cacheable));
+  } else {
+    await cache.put(cacheKey, cacheable);
   }
+  return { speakers, fromCache: false };
+}
+
+// Cron-only entrypoint: forces a fresh fetch and waits for the cache write
+// to complete before returning.
+async function refreshSpeakerCache(env) {
+  await getOrFetchSpeakers(env, null, { forceRefresh: true });
+}
+
+async function handleSpeakersList(request, env, ctx, cors) {
+  const url = new URL(request.url);
+  const forceRefresh = url.searchParams.has("refresh");
+  const { speakers, fromCache } = await getOrFetchSpeakers(env, ctx, { forceRefresh });
 
   const payload = JSON.stringify({
     eventId: env.EVENT_ID,
@@ -415,36 +295,19 @@ async function handleSpeakersList(request, env, ctx, cors) {
     headers: {
       ...cors,
       "Content-Type": "application/json",
-      "X-Cache": fromCache ? (needsRefresh ? "STALE" : "HIT") : "MISS",
-      "Cache-Control": `public, max-age=${LEAN_CACHE_TTL}`,
+      "X-Cache": fromCache ? "HIT" : "MISS",
+      "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
     },
   });
 }
 
 async function handleSpeakerDetail(id, env, ctx, cors) {
-  let speakers = null;
-  let fromCache = false;
-  let needsRefresh = false;
+  const { speakers, fromCache } = await getOrFetchSpeakers(env, ctx);
 
-  const cached = await readFullCache(env);
-  if (cached) {
-    speakers = cached.speakers;
-    fromCache = true;
-    if (isStale(cached.cachedAt, FULL_CACHE_TTL)) needsRefresh = true;
-  }
-
-  if (!speakers) {
-    // Full cache cold — fetch full data now (only happens on first modal open after deploy)
-    speakers = await fetchFullSpeakers(env);
-    await writeFullCache(env, ctx, speakers);
-    fromCache = false;
-    needsRefresh = false;
-  } else if (needsRefresh) {
-    ctx.waitUntil(
-      fetchFullSpeakers(env).then(fresh => writeFullCache(env, null, fresh)).catch(console.error)
-    );
-  }
-
+  // Index by ID for O(1) lookup. The main /speakers/:id case uses
+  // eventPerson.id (the ID present in the lean list). For cases where the
+  // frontend hits us with a co-speaker's communityProfile.id from session
+  // data, we fall back to name match against the embedded session speakers.
   const speaker = speakers.find((s) => s.id === id) ||
                   findByCoSpeakerId(speakers, id);
 
@@ -457,8 +320,8 @@ async function handleSpeakerDetail(id, env, ctx, cors) {
     headers: {
       ...cors,
       "Content-Type": "application/json",
-      "X-Cache": fromCache ? (needsRefresh ? "STALE" : "HIT") : "MISS",
-      "Cache-Control": `public, max-age=${FULL_CACHE_TTL}`,
+      "X-Cache": fromCache ? "HIT" : "MISS",
+      "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`,
     },
   });
 }
@@ -484,17 +347,7 @@ function findByCoSpeakerId(speakers, communityProfileId) {
   return null;
 }
 
-/** Fetch only card-display fields — used for the /speakers list. Fast. */
-async function fetchLeanSpeakers(env) {
-  return _fetchAllSpeakers(env, LEAN_PEOPLE_QUERY);
-}
-
-/** Fetch all fields including bio/sessions/socials — used for modals. Slow. */
-async function fetchFullSpeakers(env) {
-  return _fetchAllSpeakers(env, FULL_PEOPLE_QUERY);
-}
-
-async function _fetchAllSpeakers(env, query) {
+async function fetchAllSpeakers(env) {
   const speakerGroupIds = await resolveSpeakerGroupIds(env);
   const featuredGroupId = env.FEATURED_GROUP_ID || null;
   const featuredOrderField = env.FEATURED_ORDER_FIELD || DEFAULT_FEATURED_ORDER_FIELD;
@@ -503,7 +356,7 @@ async function _fetchAllSpeakers(env, query) {
   let cursor = { first: PAGE_SIZE };
 
   for (let i = 0; i < 50; i++) {
-    const data = await swapcardQuery(env, query, { eventId: env.EVENT_ID, cursor });
+    const data = await swapcardQuery(env, PEOPLE_QUERY, { eventId: env.EVENT_ID, cursor });
     const page = data?.eventPerson;
     if (!page) break;
     allPeople.push(...(page.nodes || []));
@@ -511,14 +364,16 @@ async function _fetchAllSpeakers(env, query) {
     cursor = { first: PAGE_SIZE, after: page.pageInfo.endCursor };
   }
 
-  // Filter to speakers — anyone in one of the speaker groups.
-  // NOTE: Event-level visibility filtering (Swapcard "User visible to others
-  // at Event Level" toggle) is pending confirmation of the correct API field
-  // name. Run /diagnostics and search the response for visibility-related
-  // fields, then re-add the filter here.
-  const speakers = allPeople.filter((p) =>
-    (p.groups || []).some((g) => speakerGroupIds.includes(g.id))
-  );
+  // Filter to speakers — anyone in one of the speaker groups AND visible
+  // at the event level. withEvent.isVisible maps to the "User visible to
+  // others at Event Level" toggle in the Swapcard admin UI.
+  // Confirmed field: EventPersonWithEvent.isVisible (Boolean!) per Swapcard docs.
+  const speakers = allPeople.filter((p) => {
+    const inSpeakerGroup = (p.groups || []).some((g) => speakerGroupIds.includes(g.id));
+    if (!inSpeakerGroup) return false;
+    if (p.withEvent?.isVisible === false) return false;
+    return true;
+  });
 
   return speakers.map((p) => normalizePerson(p, { featuredGroupId, featuredOrderField, eventId: env.EVENT_ID }));
 }
