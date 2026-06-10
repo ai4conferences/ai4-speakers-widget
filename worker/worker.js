@@ -376,7 +376,9 @@ async function fetchAllSpeakers(env) {
     .map((p) => normalizePerson(p, { featuredGroupId, featuredOrderField, eventId: env.EVENT_ID }))
     .filter((p) => {
       const vis = (p.customFields || []).find(f => f.name === 'Widget Visibility');
-      return !(vis && vis.value === 'Hidden');
+      if (!vis) return true;
+      const vals = vis.values || (vis.value ? [vis.value] : []);
+      return !vals.includes('Hidden');
     });
 }
 
