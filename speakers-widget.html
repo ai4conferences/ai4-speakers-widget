@@ -313,6 +313,7 @@
   const widgetState = { search: '', sort: 'featured', filters: {} };
   // Modal navigation: stack of { type: 'speaker'|'session', data: {...} }
   let modalStack = [];
+  let renderToken = 0; // declared here — sessionStorage path calls render() before line 593
 
   const grid = document.getElementById('a4s-grid');
   const meta = document.getElementById('a4s-meta');
@@ -590,7 +591,6 @@
   // <16ms making the widget feel instant; subsequent batches fill in over the
   // next few frames. A renderToken cancels in-flight renders when the user
   // searches/filters/sorts before the previous render completes.
-  let renderToken = 0;
   function render() {
     renderToken++;
     const myToken = renderToken;
