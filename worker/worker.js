@@ -96,9 +96,7 @@ const LEAN_PEOPLE_QUERY = /* GraphQL */ `
         organization
         photoUrl
         groups { id name }
-        isVisible
         withEvent(eventId: $eventId) {
-          isVisible
           fields {
             __typename
             ... on SelectField {
@@ -142,7 +140,6 @@ const FULL_PEOPLE_QUERY = /* GraphQL */ `
         websiteUrl
         socialNetworks { profile type }
         groups { id name }
-        isVisible
         speakerOnPlannings {
           id
           beginsAt
@@ -164,7 +161,6 @@ const FULL_PEOPLE_QUERY = /* GraphQL */ `
           }
         }
         withEvent(eventId: $eventId) {
-          isVisible
           fields {
             __typename
             ... on SelectField {
@@ -515,20 +511,14 @@ async function _fetchAllSpeakers(env, query) {
     cursor = { first: PAGE_SIZE, after: page.pageInfo.endCursor };
   }
 
-  // Filter to speakers — anyone in one of the speaker groups AND visible
-  // at the event level. isVisible can appear at the top-level person node
-  // OR inside withEvent; we check both and treat missing/undefined as visible
-  // so the filter degrades gracefully if Swapcard's schema doesn't expose it.
-  const speakers = allPeople.filter((p) => {
-    const inSpeakerGroup = (p.groups || []).some((g) => speakerGroupIds.includes(g.id));
-    if (!inSpeakerGroup) return false;
-    // Respect "user visible to others at Event level" Swapcard setting
-    const topLevelVisible   = p.isVisible;
-    const eventLevelVisible = p.withEvent?.isVisible;
-    if (topLevelVisible   === false) return false;
-    if (eventLevelVisible === false) return false;
-    return true;
-  });
+  // Filter to speakers — anyone in one of the speaker groups.
+  // NOTE: Event-level visibility filtering (Swapcard "User visible to others
+  // at Event Level" toggle) is pending confirmation of the correct API field
+  // name. Run /diagnostics and search the response for visibility-related
+  // fields, then re-add the filter here.
+  const speakers = allPeople.filter((p) =>
+    (p.groups || []).some((g) => speakerGroupIds.includes(g.id))
+  );
 
   return speakers.map((p) => normalizePerson(p, { featuredGroupId, featuredOrderField, eventId: env.EVENT_ID }));
 }
