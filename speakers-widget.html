@@ -287,7 +287,10 @@
   const WORKER_BASE = WORKER_URL.replace(/\/speakers\/?$/, '');
 
   // ===== Configuration =====
-  const VISIBLE_FILTERS = ['Track', 'Industry', 'Job Function'];
+  const VISIBLE_FILTERS = ['Track', 'Industry', 'Job Function', 'Member of the Press'];
+  // Filters that should show even when they only have one distinct value
+  // (e.g. Member of the Press only ever has "Yes" as a value)
+  const SINGLE_OPTION_FILTERS = ['Member of the Press'];
   const FACET_ORDER_HINT = ['Track', 'Industry', 'Job Function'];
   // Per-value minimum: filter dropdown values with fewer than this many
   // speakers are hidden. Track is intentionally omitted (small curated set).
@@ -313,7 +316,6 @@
   const widgetState = { search: '', sort: 'featured', filters: {} };
   // Modal navigation: stack of { type: 'speaker'|'session', data: {...} }
   let modalStack = [];
-  let renderToken = 0; // declared here — sessionStorage path calls render() before line 593
 
   const grid = document.getElementById('a4s-grid');
   const meta = document.getElementById('a4s-meta');
@@ -327,67 +329,21 @@
   const modalBody = document.getElementById('a4s-modal-body');
   const modalBack = document.getElementById('a4s-modal-back');
 
-  // ===== Fetch with sessionStorage cache =====
-  // On first visit: fetch from Worker, render, store in sessionStorage.
-  // On repeat visits within the same browser session: render from
-  // sessionStorage instantly (< 5 ms), then revalidate in background.
-  const SESSION_CACHE_KEY  = `a4s-speakers-${WORKER_URL}`;
-  const SESSION_CACHE_MAX_AGE = 20 * 60 * 1000; // 20 minutes
-
-  function loadFromSessionCache() {
-    try {
-      const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
-      if (!raw) return null;
-      const { data, cachedAt } = JSON.parse(raw);
-      if (!data || (Date.now() - cachedAt) > SESSION_CACHE_MAX_AGE) return null;
-      return data;
-    } catch (_) { return null; }
-  }
-
-  function saveToSessionCache(data) {
-    try {
-      sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify({ data, cachedAt: Date.now() }));
-    } catch (_) { /* sessionStorage unavailable (private mode, full quota) — silently skip */ }
-  }
-
-  function initWithData(data) {
-    allSpeakers = data.speakers || [];
-    speakerById = new Map(allSpeakers.map(s => [s.id, s]));
-    buildFilterUI();
-    applyFilters();
-  }
-
-  function fetchFromWorker() {
-    return fetch(WORKER_URL, { credentials: 'omit' })
-      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
-  }
-
-  const cached = loadFromSessionCache();
-  if (cached) {
-    // Render immediately from cache — no network wait
-    initWithData(cached);
-    // Revalidate in background; update grid silently if data changed
-    fetchFromWorker().then(fresh => {
-      saveToSessionCache(fresh);
-      const freshIds = (fresh.speakers || []).map(s => s.id).join(',');
-      const cachedIds = allSpeakers.map(s => s.id).join(',');
-      if (freshIds !== cachedIds) {
-        allSpeakers = fresh.speakers || [];
-        speakerById = new Map(allSpeakers.map(s => [s.id, s]));
-        buildFilterUI();
-        applyFilters();
-      }
-    }).catch(() => { /* background refresh failed — cached data still showing */ });
-  } else {
-    fetchFromWorker()
-      .then(data => { saveToSessionCache(data); initWithData(data); })
-      .catch(err => {
-        console.error('[ai4-speakers]', err);
-        grid.innerHTML = '';
-        errorBox.hidden = false;
-        errorBox.textContent = 'Unable to load speakers right now. Please try again shortly.';
-      });
-  }
+  // ===== Fetch =====
+  fetch(WORKER_URL, { credentials: 'omit' })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(data => {
+      allSpeakers = data.speakers || [];
+      speakerById = new Map(allSpeakers.map(s => [s.id, s]));
+      buildFilterUI();
+      applyFilters();
+    })
+    .catch(err => {
+      console.error('[ai4-speakers]', err);
+      grid.innerHTML = '';
+      errorBox.hidden = false;
+      errorBox.textContent = 'Unable to load speakers right now. Please try again shortly.';
+    });
 
   // ===== Facet building =====
   function buildFacets(speakers) {
@@ -408,9 +364,10 @@
         if (count < minCount) valueMap.delete(value);
       }
     }
-    // Drop entire facets with fewer than 2 distinct surviving values.
+    // Drop entire facets with fewer than 2 distinct surviving values,
+    // unless they're in SINGLE_OPTION_FILTERS (e.g. Member of the Press = Yes only)
     for (const name of Object.keys(facets)) {
-      if (facets[name].size < 2) delete facets[name];
+      if (facets[name].size < 2 && !SINGLE_OPTION_FILTERS.includes(name)) delete facets[name];
     }
     return facets;
   }
@@ -591,6 +548,7 @@
   // <16ms making the widget feel instant; subsequent batches fill in over the
   // next few frames. A renderToken cancels in-flight renders when the user
   // searches/filters/sorts before the previous render completes.
+  let renderToken = 0;
   function render() {
     renderToken++;
     const myToken = renderToken;
@@ -1015,9 +973,7 @@
 
     root.appendChild(metaWrap);
 
-    // Description — Swapcard returns HTML (br tags, p tags, etc.).
-    // We sanitize it (strip scripts/handlers) then render as innerHTML
-    // so formatting displays correctly instead of as literal tag text.
+    // Description
     if (session.description && session.description.trim()) {
       const section = document.createElement('div');
       section.className = 'a4s-mv-section';
@@ -1026,7 +982,12 @@
 
       const desc = document.createElement('div');
       desc.className = 'a4s-sv-description';
-      desc.innerHTML = sanitizeHtml(session.description);
+      const paragraphs = session.description.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
+      for (const para of paragraphs) {
+        const p = document.createElement('p');
+        p.textContent = para.replace(/\n/g, ' ');
+        desc.appendChild(p);
+      }
       section.appendChild(desc);
       root.appendChild(section);
     }
@@ -1180,24 +1141,6 @@
     }
   }
   function friendlySocialName(type) { return type ? type.charAt(0) + type.slice(1).toLowerCase() : 'Link'; }
-
-  // Sanitizes HTML from Swapcard so it can be rendered safely via innerHTML.
-  // Removes scripts, event handlers, and javascript: hrefs while preserving
-  // safe formatting tags (br, p, strong, em, ul, ol, li, a).
-  function sanitizeHtml(html) {
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    const DANGEROUS_TAGS = ['script','style','iframe','object','embed','form','input','button','base','link','meta'];
-    DANGEROUS_TAGS.forEach(tag => doc.querySelectorAll(tag).forEach(el => el.remove()));
-    doc.querySelectorAll('*').forEach(el => {
-      Array.from(el.attributes).forEach(attr => {
-        // Remove all event handlers (onclick, onload, etc.)
-        if (attr.name.startsWith('on')) { el.removeAttribute(attr.name); return; }
-        // Remove javascript: hrefs
-        if (attr.name === 'href' && /^\s*javascript:/i.test(attr.value)) el.removeAttribute(attr.name);
-      });
-    });
-    return doc.body.innerHTML;
-  }
 
   function socialIcon(type) {
     const ic = {
