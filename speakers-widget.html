@@ -982,12 +982,7 @@
 
       const desc = document.createElement('div');
       desc.className = 'a4s-sv-description';
-      const paragraphs = session.description.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
-      for (const para of paragraphs) {
-        const p = document.createElement('p');
-        p.textContent = para.replace(/\n/g, ' ');
-        desc.appendChild(p);
-      }
+      desc.innerHTML = sanitizeHtml(session.description);
       section.appendChild(desc);
       root.appendChild(section);
     }
@@ -1141,6 +1136,22 @@
     }
   }
   function friendlySocialName(type) { return type ? type.charAt(0) + type.slice(1).toLowerCase() : 'Link'; }
+
+  // Sanitizes HTML from Swapcard so it renders safely via innerHTML.
+  // Strips scripts, event handlers, and javascript: hrefs while preserving
+  // safe formatting tags (br, p, strong, em, a, ul, ol, li).
+  function sanitizeHtml(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const DANGEROUS = ['script','style','iframe','object','embed','form','input','button','base','link','meta'];
+    DANGEROUS.forEach(tag => doc.querySelectorAll(tag).forEach(el => el.remove()));
+    doc.querySelectorAll('*').forEach(el => {
+      Array.from(el.attributes).forEach(attr => {
+        if (attr.name.startsWith('on')) { el.removeAttribute(attr.name); return; }
+        if (attr.name === 'href' && /^\s*javascript:/i.test(attr.value)) el.removeAttribute(attr.name);
+      });
+    });
+    return doc.body.innerHTML;
+  }
 
   function socialIcon(type) {
     const ic = {
