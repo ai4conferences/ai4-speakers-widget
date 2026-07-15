@@ -790,23 +790,38 @@
     header.appendChild(headerText);
     root.appendChild(header);
 
-    // If we're still loading the full record, show a skeleton in place of
-    // the bio/info/socials/sessions sections. Once the detail fetch resolves
-    // we re-render with the real content.
+    // Bio, website, and socials are now in the lean data so we render them
+    // immediately. Only sessions still need the full detail fetch.
     if (loading) {
+      if (s.biography && s.biography.trim()) {
+        const section = document.createElement('div');
+        section.className = 'a4s-mv-section';
+        const h = document.createElement('h3'); h.className = 'a4s-mv-h'; h.textContent = 'About me';
+        section.appendChild(h);
+        const bio = document.createElement('div');
+        bio.className = 'a4s-mv-bio';
+        const paragraphs = s.biography.split(/\n\s*\n+/).map(p => p.trim()).filter(Boolean);
+        for (const para of paragraphs) {
+          const p = document.createElement('p');
+          p.textContent = para.replace(/\n/g, ' ');
+          bio.appendChild(p);
+        }
+        section.appendChild(bio);
+        root.appendChild(section);
+      }
+      // Sessions skeleton — only this section needs to wait for the detail fetch
       const skel = document.createElement('div');
       skel.className = 'a4s-mv-section';
-      const line1 = document.createElement('div'); line1.className = 'a4s-line w-80'; line1.style.height = '14px'; line1.style.marginBottom = '10px'; line1.style.borderRadius = '6px';
-      const line2 = document.createElement('div'); line2.className = 'a4s-line w-60'; line2.style.height = '14px'; line2.style.marginBottom = '10px'; line2.style.borderRadius = '6px';
-      const line3 = document.createElement('div'); line3.className = 'a4s-line w-80'; line3.style.height = '14px'; line3.style.borderRadius = '6px';
-      // Reuse the existing skeleton shimmer style by adding a wrapper that
-      // mimics .a4s-skeleton's child treatment.
       const wrap = document.createElement('div');
       wrap.className = 'a4s-skeleton';
-      wrap.style.background = 'transparent';
-      wrap.style.boxShadow = 'none';
-      wrap.style.padding = '0';
-      wrap.appendChild(line1); wrap.appendChild(line2); wrap.appendChild(line3);
+      wrap.style.background = 'transparent'; wrap.style.boxShadow = 'none'; wrap.style.padding = '0';
+      ['w-80','w-60','w-80'].forEach((cls, i) => {
+        const line = document.createElement('div');
+        line.className = `a4s-line ${cls}`;
+        line.style.height = '14px'; line.style.borderRadius = '6px';
+        if (i < 2) line.style.marginBottom = '10px';
+        wrap.appendChild(line);
+      });
       skel.appendChild(wrap);
       root.appendChild(skel);
       return root;
