@@ -2,6 +2,11 @@ var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
+import { isSiteRequest, handleSite, withSlugs } from "./seo.js";
+// Bundled as text (see [[rules]] in wrangler.toml) — must sit next to
+// worker.js. Only used when
+// PREVIEW_WIDGET="true" (staging) to inject the latest widget JS/CSS.
+import widgetSource from "./speakers-widget.html";
 var SWAPCARD_ENDPOINT = "https://developer.swapcard.com/event-admin/graphql";
 var LEAN_CACHE_TTL = 1800;
 var FULL_CACHE_TTL = 3600;
@@ -144,15 +149,25 @@ var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
+    // Requests on the public site (e.g. ai4.com/speakers*) → server-rendered
+    // HTML. Requests on the workers.dev / API hostname → JSON API as before.
+    // "/api/..." always means the JSON API (any host) — used by staging
+    // preview, where the site pages and the API share one hostname.
+    let apiPath = url.pathname;
+    if (apiPath === "/api" || apiPath.startsWith("/api/")) {
+      apiPath = apiPath.slice(4) || "/";
+    } else if (isSiteRequest(url, env) && !isCrossOriginApiCall(request, url)) {
+      return handleSite(request, env, ctx, { loadLean, loadFull, widgetSource });
+    }
     const cors = buildCorsHeaders(origin, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405, cors);
     try {
-      if (url.pathname === "/diagnostics") return await handleDiagnostics(env, cors);
-      if (url.pathname === "/speakers" || url.pathname === "/") {
+      if (apiPath === "/diagnostics") return await handleDiagnostics(env, cors);
+      if (apiPath === "/speakers" || apiPath === "/") {
         return await handleSpeakersList(request, env, ctx, cors);
       }
-      const detailMatch = url.pathname.match(/^\/speakers\/([^/]+)\/?$/);
+      const detailMatch = apiPath.match(/^\/speakers\/([^/]+)\/?$/);
       if (detailMatch) {
         const id = decodeURIComponent(detailMatch[1]);
         return await handleSpeakerDetail(id, env, ctx, cors);
@@ -176,6 +191,15 @@ var worker_default = {
     }
   }
 };
+// A fetch() from another site (e.g. the widget on media.ai4.io calling the
+// staging Worker) always carries an Origin header that differs from this
+// host; page navigations don't. Those calls get the JSON API (with CORS)
+// even on hosts that otherwise serve SSR pages — including OPTIONS preflights.
+function isCrossOriginApiCall(request, url) {
+  const o = request.headers.get("Origin");
+  return !!o && o !== url.origin;
+}
+__name(isCrossOriginApiCall, "isCrossOriginApiCall");
 async function handleDiagnostics(env, cors) {
   const [groupsData, fieldsData] = await Promise.all([
     swapcardQuery(env, GROUPS_QUERY, { eventId: env.EVENT_ID }),
@@ -241,8 +265,20 @@ async function readLeanCache(env) {
   return null;
 }
 __name(readLeanCache, "readLeanCache");
+function fullKvKey(env) {
+  return `speakers-full-v1-${env.EVENT_ID}`;
+}
+__name(fullKvKey, "fullKvKey");
 async function writeFullCache(env, ctx, speakers) {
   const now = Date.now();
+  if (env.SPEAKERS_KV) {
+    const pk = env.SPEAKERS_KV.put(fullKvKey(env), JSON.stringify(speakers), {
+      expirationTtl: FULL_CACHE_TTL * 4,
+      metadata: { cachedAt: now }
+    });
+    if (ctx) ctx.waitUntil(pk);
+    else await pk;
+  }
   const cacheResp = new Response(JSON.stringify({ speakers, cachedAt: now }), {
     headers: {
       "Content-Type": "application/json",
@@ -255,12 +291,56 @@ async function writeFullCache(env, ctx, speakers) {
 }
 __name(writeFullCache, "writeFullCache");
 async function readFullCache(env) {
+  if (env.SPEAKERS_KV) {
+    try {
+      const { value, metadata } = await env.SPEAKERS_KV.getWithMetadata(fullKvKey(env));
+      if (value) return { speakers: JSON.parse(value), cachedAt: metadata?.cachedAt || 0 };
+    } catch (_) {
+    }
+  }
   const cached = await caches.default.match(fullCacheKey(env));
   if (!cached) return null;
   const body = await cached.json();
   return { speakers: body.speakers, cachedAt: body.cachedAt || 0 };
 }
 __name(readFullCache, "readFullCache");
+// Cache-first loaders shared with seo.js. Stale data is served immediately
+// and refreshed in the background. With allowCold=false a cold cache returns
+// null (and warms in the background) instead of blocking on Swapcard.
+async function loadLean(env, ctx, { allowCold = true } = {}) {
+  const cached = await readLeanCache(env);
+  if (cached) {
+    if (isStale(cached.cachedAt, LEAN_CACHE_TTL)) {
+      ctx.waitUntil(fetchLeanSpeakers(env).then((fresh) => writeLeanCache(env, null, fresh)).catch(console.error));
+    }
+    return cached;
+  }
+  if (!allowCold) {
+    ctx.waitUntil(fetchLeanSpeakers(env).then((fresh) => writeLeanCache(env, null, fresh)).catch(console.error));
+    return null;
+  }
+  const speakers = await fetchLeanSpeakers(env);
+  await writeLeanCache(env, ctx, speakers);
+  return { speakers, cachedAt: Date.now() };
+}
+__name(loadLean, "loadLean");
+async function loadFull(env, ctx, { allowCold = true } = {}) {
+  const cached = await readFullCache(env);
+  if (cached) {
+    if (isStale(cached.cachedAt, FULL_CACHE_TTL)) {
+      ctx.waitUntil(fetchFullSpeakers(env).then((fresh) => writeFullCache(env, null, fresh)).catch(console.error));
+    }
+    return cached;
+  }
+  if (!allowCold) {
+    ctx.waitUntil(fetchFullSpeakers(env).then((fresh) => writeFullCache(env, null, fresh)).catch(console.error));
+    return null;
+  }
+  const speakers = await fetchFullSpeakers(env);
+  await writeFullCache(env, ctx, speakers);
+  return { speakers, cachedAt: Date.now() };
+}
+__name(loadFull, "loadFull");
 function isStale(cachedAt, ttl) {
   return Date.now() - cachedAt > ttl * STALE_FACTOR * 1e3;
 }
@@ -278,7 +358,8 @@ var LEAN_FIELDS = [
   "socials",
   "customFields",
   "featured",
-  "featuredOrder"
+  "featuredOrder",
+  "slug"
 ];
 function projectLean(speaker) {
   const lean = {};
@@ -315,7 +396,7 @@ async function handleSpeakersList(request, env, ctx, cors) {
   const payload = JSON.stringify({
     eventId: env.EVENT_ID,
     count: speakers.length,
-    speakers: speakers.map(projectLean),
+    speakers: withSlugs(speakers).map(projectLean),
     generatedAt: (/* @__PURE__ */ new Date()).toISOString()
   });
   return new Response(payload, {

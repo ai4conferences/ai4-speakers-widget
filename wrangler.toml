@@ -1,0 +1,95 @@
+name = "ai4-speakers"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Lets worker.js import ./speakers-widget.html (same folder) as a string (used by staging
+# preview mode to inject the latest widget code).
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
+# Default (used by `wrangler dev` for local testing)
+[vars]
+EVENT_ID = "RXZlbnRfMzgxNjMzOA=="
+COMMUNITY_ID = "Q29tbXVuaXR5XzExODYw"
+ALLOWED_ORIGINS = "https://ai4.io,https://www.ai4.io,https://media.ai4.io,https://www.ai4.com,https://ai4.com"
+# Name of the Swapcard custom Number field that controls featured ordering.
+# Defaults to "Featured Order" if unset.
+# FEATURED_ORDER_FIELD = "Featured Order"
+
+# KV namespace binding — SPEAKERS_KV caches the lean + full speaker lists
+# globally across all Cloudflare datacenters. Required for SSR to be warm
+# everywhere.
+[[kv_namespaces]]
+binding = "SPEAKERS_KV"
+id = "ffd555238c0f4dad96e8012e9f245406"
+
+# ===== Staging (separate Worker + separate KV) =====
+# A fully separate Worker ("ai4-speakers-staging") with its own KV cache, so
+# nothing here can affect production. It runs in PREVIEW mode on its
+# workers.dev URL — no DNS or routes needed:
+#   https://ai4-speakers-staging.<your-subdomain>.workers.dev/speakers/
+# proxies the LIVE ai4.com page, injects the SSR speaker HTML, swaps in the
+# widget JS/CSS from this repo, and serves its own API at /api/speakers.
+# The page is noindex so it never competes with ai4.com in search.
+[env.staging]
+name = "ai4-speakers-staging"
+
+[env.staging.vars]
+EVENT_ID = "RXZlbnRfMzgxNjMzOA=="
+COMMUNITY_ID = "Q29tbXVuaXR5XzExODYw"
+FEATURED_ORDER_FIELD = "Featured Order"
+ALLOWED_ORIGINS = "*"
+SITE_HOSTS      = "ai4-speakers-staging.*"   # the staging workers.dev hostname
+ORIGIN_OVERRIDE = "https://ai4.com"          # proxy the live WordPress site
+PREVIEW_WIDGET  = "true"                     # inject widget JS/CSS from this repo
+NOINDEX         = "true"
+SPEAKERS_PATH   = "/speakers/"
+EVENT_LABEL     = "Ai4 2026"
+# SITE_ORIGIN unset → links/sitemap use the staging URL itself
+
+# Create once with:  npx wrangler kv namespace create SPEAKERS_KV --env staging
+# then paste the id it prints below.
+[[env.staging.kv_namespaces]]
+binding = "SPEAKERS_KV"
+id = "37109c48dd1549d3b210d8d1c77b44e4"
+
+# Keeps the staging cache warm; slower than prod to go easy on Swapcard.
+[env.staging.triggers]
+crons = ["*/15 * * * *"]
+
+# ===== Production =====
+[env.production]
+name = "ai4-speakers"
+workers_dev = true
+# SSR routes: serve server-rendered speaker HTML on the public site.
+# Unrecognised paths under these patterns pass through to WordPress.
+# If another Worker has a broad route (e.g. "ai4.com/*"), this more specific
+# pattern wins for /speakers*, so that Worker won't run on these paths.
+routes = [
+  { pattern = "ai4.com/speakers*", zone_name = "ai4.com" },
+  { pattern = "www.ai4.com/speakers*", zone_name = "ai4.com" },
+]
+
+[env.production.vars]
+EVENT_ID = "RXZlbnRfMzgxNjMzOA=="
+COMMUNITY_ID = "Q29tbXVuaXR5XzExODYw"
+FEATURED_ORDER_FIELD = "Featured Order"
+ALLOWED_ORIGINS = "https://ai4.io,https://www.ai4.io,https://media.ai4.io,https://www.ai4.com,https://ai4.com"
+# ── SSR / SEO settings ──
+SITE_HOSTS    = "ai4.com,www.ai4.com"   # hostnames that get HTML (others, e.g. workers.dev, get the JSON API)
+SITE_ORIGIN   = "https://ai4.com"       # canonical URLs, sitemap, JSON-LD
+SPEAKERS_PATH = "/speakers/"            # WordPress page hosting the widget
+EVENT_LABEL   = "Ai4 2026"              # page titles: "Jane Doe – Ai4 2026 Speaker"
+# INFO_FIELDS = "Track,Industry,Job Function,Company Size"
+
+[[env.production.kv_namespaces]]
+binding = "SPEAKERS_KV"
+id = "ffd555238c0f4dad96e8012e9f245406"
+
+[env.production.triggers]
+crons = ["*/5 * * * *"]
+
+# Secrets — set via CLI, never commit:
+#   wrangler secret put SWAPCARD_API_KEY --env production

@@ -6,7 +6,7 @@
   Configuration:
     Update data-worker-url below to point at your deployed Cloudflare Worker.
 -->
-<div id="ai4-speakers-root" data-worker-url="https://ai4-speakers.YOUR-SUBDOMAIN.workers.dev/speakers">
+<div id="ai4-speakers-root" data-worker-url="https://ai4-speakers-staging.ai4io.workers.dev">
   <div class="a4s-controls">
     <div class="a4s-controls-top">
       <label class="a4s-search">
@@ -22,7 +22,7 @@
     <div class="a4s-active-chips" id="a4s-active-chips" hidden></div>
   </div>
 
-  <div class="a4s-grid" id="a4s-grid" role="list">
+  <div class="a4s-grid" id="a4s-grid">
     <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
     <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
     <div class="a4s-card a4s-skeleton" aria-hidden="true"><div class="a4s-photo"></div><div class="a4s-line w-60"></div><div class="a4s-line w-80"></div><div class="a4s-line w-40"></div></div>
@@ -146,6 +146,7 @@
     box-shadow: var(--a4-shadow-default) !important;
     transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
   }
+  #ai4-speakers-root a.a4s-card, #ai4-speakers-root a.a4s-card:hover, #ai4-speakers-root a.a4s-card:visited { text-decoration: none !important; color: inherit !important; }
   #ai4-speakers-root .a4s-card:hover, #ai4-speakers-root .a4s-card:focus-visible {
     background:
       linear-gradient(var(--a4-card-bg-hover), var(--a4-card-bg-hover)) padding-box,
@@ -281,10 +282,16 @@
 (function () {
   const root = document.getElementById('ai4-speakers-root');
   if (!root) return;
+  // On server-rendered speaker profile pages (/speakers/<slug>/) the Worker
+  // replaces the widget with static HTML — nothing to do.
+  if (root.dataset.view === 'speaker') return;
   const WORKER_URL = root.dataset.workerUrl;
   // Detail endpoint base — strip /speakers from WORKER_URL to get the worker
   // origin, then append /speakers/:id at fetch time.
   const WORKER_BASE = WORKER_URL.replace(/\/speakers\/?$/, '');
+  // Public URL prefix for speaker profile pages (served by the Worker's
+  // SSR routes). Cards link to SPEAKER_PAGE_BASE + slug + '/'.
+  const SPEAKER_PAGE_BASE = root.dataset.speakerBase || '/speakers/';
 
   // ===== Configuration =====
   const VISIBLE_FILTERS = ['Track', 'Industry', 'Job Function', 'Member of the Press'];
@@ -330,16 +337,50 @@
   const modalBack = document.getElementById('a4s-modal-back');
 
   // ===== Fetch =====
+  // ===== Hydration =====
+  // If the Worker server-rendered the cards (grid[data-ssr]), they are real
+  // <a> links already on the page. We keep them and only attach behaviour;
+  // the first client render is skipped when the order matches exactly.
+  const ssrCards = grid.hasAttribute('data-ssr') ? Array.from(grid.querySelectorAll('.a4s-card[data-id]')) : [];
+  ssrCards.forEach(card => {
+    const img = card.querySelector('.a4s-photo img');
+    if (!img) return;
+    const fallback = () => {
+      const s = { firstName: '', lastName: '' };
+      const name = (card.querySelector('.a4s-name') || {}).textContent || '';
+      const bits = name.trim().split(/\s+/);
+      s.firstName = bits[0] || ''; s.lastName = bits.length > 1 ? bits[bits.length - 1] : '';
+      const wrap = img.parentNode; img.remove(); wrap.appendChild(buildInitials(s));
+    };
+    if (img.complete && img.naturalWidth === 0) fallback();
+    else img.addEventListener('error', fallback);
+  });
+
+  // One delegated click handler for all cards (SSR or client-rendered).
+  // Plain left-click opens the modal; cmd/ctrl/shift/middle-click follows the
+  // link normally (new tab etc.), which is also what crawlers see.
+  grid.addEventListener('click', (e) => {
+    const card = e.target.closest('.a4s-card[data-id]');
+    if (!card) return;
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const s = speakerById.get(card.dataset.id);
+    if (!s) return; // data not loaded yet → let the link navigate
+    e.preventDefault();
+    openSpeaker(s, card.getAttribute('href'));
+  });
+
   fetch(WORKER_URL, { credentials: 'omit' })
     .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(data => {
       allSpeakers = data.speakers || [];
       speakerById = new Map(allSpeakers.map(s => [s.id, s]));
       buildFilterUI();
-      applyFilters();
+      applyFilters({ reuseSsr: ssrCards.length > 0 });
     })
     .catch(err => {
       console.error('[ai4-speakers]', err);
+      // Server-rendered cards are still valid links — keep them.
+      if (ssrCards.length) return;
       grid.innerHTML = '';
       errorBox.hidden = false;
       errorBox.textContent = 'Unable to load speakers right now. Please try again shortly.';
@@ -478,7 +519,7 @@
   });
 
   // ===== Filter / sort pipeline =====
-  function applyFilters() {
+  function applyFilters(opts) {
     const q = widgetState.search.trim().toLowerCase();
     filtered = allSpeakers.filter(s => {
       if (q) {
@@ -510,6 +551,15 @@
     });
 
     renderActiveChips();
+    // Skip the initial render if the server-rendered grid already shows
+    // exactly this list in this order (avoids flicker / layout shift).
+    if (opts && opts.reuseSsr) {
+      const domIds = Array.from(grid.querySelectorAll('.a4s-card[data-id]'), el => el.dataset.id);
+      if (domIds.length === filtered.length && domIds.every((id, i) => id === filtered[i].id)) {
+        empty.hidden = true;
+        return;
+      }
+    }
     render();
   }
 
@@ -570,12 +620,14 @@
   }
 
   function buildCard(s) {
-    const card = document.createElement('button');
-    card.type = 'button';
+    // Real links when a slug is available (crawlable, open-in-new-tab works);
+    // clicks are intercepted by the delegated grid handler to open the modal.
+    const card = document.createElement(s.slug ? 'a' : 'button');
+    if (s.slug) card.href = SPEAKER_PAGE_BASE + s.slug + '/';
+    else card.type = 'button';
     card.className = 'a4s-card';
-    card.setAttribute('role', 'listitem');
-    card.setAttribute('aria-label', `${s.fullName}, ${s.jobTitle || ''} at ${s.organization || ''}`);
-    card.addEventListener('click', () => openSpeaker(s));
+    card.dataset.id = s.id;
+    card.setAttribute('aria-label', `${s.fullName}${s.jobTitle ? ', ' + s.jobTitle : ''}${s.organization ? ' at ' + s.organization : ''}`);
 
     const photoWrap = document.createElement('div');
     photoWrap.className = 'a4s-photo';
@@ -655,7 +707,22 @@
     return promise;
   }
 
-  function openSpeaker(speaker) {
+  // ----- Deep links -----
+  // Opening a speaker from the grid updates the address bar to their profile
+  // URL (shareable; refreshing loads the server-rendered profile page).
+  // Back / Escape / close return to the listing URL.
+  let listUrl = null;
+  function pushSpeakerUrl(href) {
+    if (!href || !window.history || !history.pushState) return;
+    if (listUrl === null) listUrl = location.href;
+    history.pushState({ a4sModal: true }, '', href);
+  }
+  window.addEventListener('popstate', () => {
+    if (!modal.hidden && !(history.state && history.state.a4sModal)) closeModal({ fromPopstate: true });
+  });
+
+  function openSpeaker(speaker, href) {
+    if (href) pushSpeakerUrl(href);
     // The `speaker` arg here is the LEAN record from the main grid. We
     // optimistically push it onto the stack and render immediately (so the
     // photo/name/title/org show instantly), then upgrade with full data
@@ -737,7 +804,12 @@
     modalBody.scrollTop = 0;
   }
 
-  function closeModal() {
+  function closeModal(opts) {
+    if (!(opts && opts.fromPopstate) && history.state && history.state.a4sModal) {
+      history.back(); // popstate handler finishes the close
+      return;
+    }
+    listUrl = null;
     modal.hidden = true;
     modalStack = [];
     document.body.style.overflow = '';
